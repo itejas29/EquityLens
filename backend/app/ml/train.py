@@ -31,8 +31,19 @@ from app.services.backtest_scoring import compute_point_in_time_universe
 from app.services.market_data import fetch_price_history
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
-RF_MAX_DEPTH = 5
-RF_N_ESTIMATORS = 200
+RF_N_ESTIMATORS = 300
+
+# RandomForest depth is chosen from this grid on the VALIDATION split. The old
+# fixed max_depth=5 was set when the training set was 770 rows; it is now
+# ~232,000, where depth 5 is heavily underfit. Capacity should scale with data
+# size, so the depth is selected rather than assumed — on validation only, so
+# the test split stays untouched until the single final report.
+RF_DEPTH_GRID = (5, 10, 16, 24)
+RF_MIN_SAMPLES_LEAF = 50  # smooths noisy leaves on a low signal-to-noise target
+
+# Cap on how many test dates the rule-based comparison rebuilds. Diagnostic
+# only — it does not affect the trained model or its reported metrics.
+COMPARISON_MAX_DATES = 20
 
 
 def _split(df):
@@ -67,6 +78,19 @@ def _rule_based_vs_ml(db: Session, test_df: pd.DataFrame, ml_probability: np.nda
     rows = test_df.copy()
     rows["ml_probability"] = ml_probability
     rows["rule_based_score"] = np.nan
+
+    # Each date costs a full point-in-time rebuild of the universe (indicators
+    # and scores for every stock), so this is capped at an evenly-spaced sample
+    # of test dates rather than all of them. With a 500-stock universe and ~150
+    # test dates the exhaustive version runs for hours to answer a diagnostic
+    # question. Evenly spaced rather than random so the sample spans the whole
+    # test window instead of clustering.
+    all_dates = sorted(rows["date"].unique())
+    if len(all_dates) > COMPARISON_MAX_DATES:
+        step = len(all_dates) / COMPARISON_MAX_DATES
+        sampled = {all_dates[min(int(i * step), len(all_dates) - 1)] for i in range(COMPARISON_MAX_DATES)}
+        rows = rows[rows["date"].isin(sampled)]
+        print(f"[train] rule-based comparison on {len(sampled)}/{len(all_dates)} test dates (sampled)")
 
     for as_of_date, group in rows.groupby("date"):
         bounded_frames = {sid: df[df["date"] <= as_of_date] for sid, df in raw_frames.items()}
@@ -115,15 +139,33 @@ def train_and_evaluate(db: Session) -> dict:
     lr_test_proba = lr_pipeline.predict_proba(X_test)[:, 1]
     lr_metrics = _metrics(y_test, lr_test_pred, lr_test_proba)
     lr_val_accuracy = round(accuracy_score(y_val, lr_pipeline.predict(X_val)), 4)
+    lr_val_auc = round(roc_auc_score(y_val, lr_pipeline.predict_proba(X_val)[:, 1]), 4)
 
-    rf_model = RandomForestClassifier(
-        n_estimators=RF_N_ESTIMATORS, max_depth=RF_MAX_DEPTH, random_state=42, class_weight="balanced"
-    )
-    rf_model.fit(X_train, y_train)
+    rf_model = None
+    rf_best_depth = None
+    rf_best_val_auc = -1.0
+    rf_depth_search: list[dict] = []
+    for depth in RF_DEPTH_GRID:
+        candidate = RandomForestClassifier(
+            n_estimators=RF_N_ESTIMATORS,
+            max_depth=depth,
+            min_samples_leaf=RF_MIN_SAMPLES_LEAF,
+            random_state=42,
+            class_weight="balanced",
+            n_jobs=-1,
+        )
+        candidate.fit(X_train, y_train)
+        val_auc = round(roc_auc_score(y_val, candidate.predict_proba(X_val)[:, 1]), 4)
+        rf_depth_search.append({"max_depth": depth, "val_roc_auc": val_auc})
+        print(f"[train]   RF max_depth={depth}: val ROC-AUC {val_auc}")
+        if val_auc > rf_best_val_auc:
+            rf_best_val_auc, rf_best_depth, rf_model = val_auc, depth, candidate
+    print(f"[train] RF depth selected on validation: {rf_best_depth} (val AUC {rf_best_val_auc})")
     rf_test_pred = rf_model.predict(X_test)
     rf_test_proba = rf_model.predict_proba(X_test)[:, 1]
     rf_metrics = _metrics(y_test, rf_test_pred, rf_test_proba)
     rf_val_accuracy = round(accuracy_score(y_val, rf_model.predict(X_val)), 4)
+    rf_val_auc = round(roc_auc_score(y_val, rf_model.predict_proba(X_val)[:, 1]), 4)
 
     feature_importances = sorted(
         zip(FEATURE_COLUMNS, rf_model.feature_importances_.tolist()), key=lambda x: x[1], reverse=True
@@ -154,8 +196,8 @@ def train_and_evaluate(db: Session) -> dict:
         "test_date_range": [str(test_df["date"].min()), str(test_df["date"].max())],
         "majority_class": majority_class,
         "majority_baseline_test_accuracy": majority_baseline_test_accuracy,
-        "logistic_regression": {"val_accuracy": lr_val_accuracy, "test": lr_metrics},
-        "random_forest": {"val_accuracy": rf_val_accuracy, "test": rf_metrics, "feature_importances": feature_importances},
+        "logistic_regression": {"val_accuracy": lr_val_accuracy, "val_roc_auc": lr_val_auc, "test": lr_metrics},
+        "random_forest": {"val_accuracy": rf_val_accuracy, "val_roc_auc": rf_val_auc, "test": rf_metrics, "feature_importances": feature_importances},
         "rf_artifact": rf_path.name,
         "lr_artifact": lr_path.name,
     }
@@ -164,8 +206,13 @@ def train_and_evaluate(db: Session) -> dict:
     # informative metric for a probability output), not just RF by default.
     # On this dataset LR beats RF; forcing RF into production despite that
     # would contradict our own measured evidence.
-    rf_auc = rf_metrics["roc_auc"] or 0
-    lr_auc = lr_metrics["roc_auc"] or 0
+    # Selected on VALIDATION AUC, never test. This previously compared
+    # rf_metrics["roc_auc"] against lr_metrics["roc_auc"] — both computed on the
+    # test set — which quietly turned the test set into a selection set and made
+    # the reported test score optimistic. The test split is now touched exactly
+    # once, to report the chosen model's score.
+    rf_auc = rf_val_auc or 0
+    lr_auc = lr_val_auc or 0
     selected_model = "random_forest" if rf_auc >= lr_auc else "logistic_regression"
     results["selected_model"] = selected_model
     results["selected_artifact"] = rf_path.name if selected_model == "random_forest" else lr_path.name

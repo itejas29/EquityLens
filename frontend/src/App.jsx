@@ -4,6 +4,8 @@ import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import DashboardPage from "./pages/DashboardPage";
+import TodayPage from "./pages/TodayPage";
 import AnalyzePage from "./pages/AnalyzePage";
 import RecommendationsPage from "./pages/RecommendationsPage";
 import StockDetailPage from "./pages/StockDetailPage";
@@ -16,9 +18,29 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          {/* Standalone full-viewport auth pages — no Layout wrapper */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          {/* App shell — sidebar + protected routes */}
           <Route element={<Layout />}>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+            <Route
+              path="/today"
+              element={
+                <ProtectedRoute>
+                  <TodayPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/analyze"
               element={
@@ -67,8 +89,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/" element={<Navigate to="/analyze" replace />} />
-            <Route path="*" element={<Navigate to="/analyze" replace />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
           </Route>
         </Routes>
       </AuthProvider>

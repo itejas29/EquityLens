@@ -1,6 +1,6 @@
 # EquityLens
 Stock analysis and portfolio decision-support platform for Indian equities (NSE).
-Research and paper-trading tool — no real-money execution, no guaranteed returns.
+Private tool for a small known group — no real-money execution, no guaranteed returns.
 
 ## Stack (fixed)
 - Backend: FastAPI, SQLAlchemy 2.0, Pydantic v2, Alembic
@@ -23,7 +23,10 @@ real-money order execution, ta-lib / pandas-ta.
 3. Money uses DECIMAL, never float.
 4. README claims only what has actually been measured. No invented benchmarks.
 5. Missing data stays NULL — never backfill with defaults or synthetic values.
-6. All user-facing output labelled as analysis, not investment advice.
+6. Private tool for a known group — not published publicly. Output uses
+   directive language (BUY / WAIT, explicit price levels). Every call must
+   still show the evidence it rests on and the case against it; decisive
+   wording never means hiding a negative or implying a return is assured.
 7. Comment non-obvious decisions (thresholds, formulas, ordering).
 
 ## Conventions

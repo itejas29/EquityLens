@@ -1,121 +1,225 @@
 import { useEffect, useState } from "react";
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { apiClient, apiErrorMessage } from "../api/client";
-import Loading from "../components/Loading";
-import ErrorMessage from "../components/ErrorMessage";
+import { Link } from "react-router-dom";
+import { apiClient } from "../api/client";
+import { SkeletonTable } from "../components/Skeleton";
+import Sparkline from "../components/Sparkline";
 
-const PIE_COLORS = ["#2563eb", "#15803d", "#b91c1c", "#92400e", "#7c3aed", "#0891b2", "#db2777", "#65a30d"];
-
-function sectorBreakdown(holdings) {
-  const totals = {};
-  for (const h of holdings) {
-    const key = h.sector || "Unknown";
-    totals[key] = (totals[key] || 0) + h.allocated_amount;
-  }
-  return Object.entries(totals).map(([name, value]) => ({ name, value: Math.round(value) }));
-}
-
-function PortfolioCard({ portfolio }) {
-  const pieData = sectorBreakdown(portfolio.holdings);
-  return (
-    <div className="card" style={{ marginBottom: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h3 style={{ margin: 0 }}>{portfolio.name}</h3>
-        <span className="muted">
-          {portfolio.risk_appetite} · ₹{portfolio.capital.toLocaleString("en-IN")} · opened {portfolio.created_at.slice(0, 10)}
-        </span>
-      </div>
-
-      <div className="metrics-grid" style={{ marginTop: 16 }}>
-        <div className="metric-tile">
-          <div className="metric-label">Market value</div>
-          <div className="metric-value">₹{portfolio.total_market_value.toLocaleString("en-IN")}</div>
-        </div>
-        <div className="metric-tile">
-          <div className="metric-label">Unrealized P&L</div>
-          <div className="metric-value" style={{ color: (portfolio.total_unrealized_pnl ?? 0) >= 0 ? "#15803d" : "#b91c1c" }}>
-            {portfolio.total_unrealized_pnl != null ? `₹${portfolio.total_unrealized_pnl.toLocaleString("en-IN")}` : "—"}
-          </div>
-        </div>
-        <div className="metric-tile">
-          <div className="metric-label">Holdings</div>
-          <div className="metric-value">{portfolio.holdings.length}</div>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, marginTop: 16 }}>
-        <div>
-          <table>
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Qty</th>
-                <th>Entry</th>
-                <th>Current</th>
-                <th>P&L</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {portfolio.holdings.map((h) => (
-                <tr key={h.id}>
-                  <td>{h.symbol}</td>
-                  <td>{h.quantity}</td>
-                  <td>{h.entry_price.toFixed(2)}</td>
-                  <td>{h.current_price != null ? h.current_price.toFixed(2) : "—"}</td>
-                  <td style={{ color: (h.unrealized_pnl ?? 0) >= 0 ? "#15803d" : "#b91c1c" }}>
-                    {h.unrealized_pnl != null ? `${h.unrealized_pnl.toFixed(2)} (${h.unrealized_pnl_pct.toFixed(1)}%)` : "—"}
-                  </td>
-                  <td>{h.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={(d) => d.name}>
-                {pieData.map((_, i) => (
-                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v) => `₹${v.toLocaleString("en-IN")}`} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  );
+// Helper to format large numbers properly
+function inr(val) {
+  return "₹" + val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export default function PortfolioPage() {
   const [portfolios, setPortfolios] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // {symbol: {change, change_pct}} for the latest completed session, keyed for
+  // O(1) lookup while rendering rows.
+  const [dayMoves, setDayMoves] = useState({});
 
   useEffect(() => {
+    let cancelled = false;
     apiClient
-      .get("/portfolio")
-      .then((res) => setPortfolios(res.data))
-      .catch((err) => setError(apiErrorMessage(err)))
-      .finally(() => setLoading(false));
+      .get("/market/overview", { params: { limit: 20 } })
+      .then((res) => {
+        if (cancelled) return;
+        const map = {};
+        for (const group of ["gainers", "losers", "most_traded"]) {
+          for (const m of res.data[group] || []) {
+            map[m.symbol] = { change: m.change, change_pct: m.change_pct };
+          }
+        }
+        setDayMoves(map);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get("/portfolio")
+      .then((res) => {
+        if (!cancelled) {
+          setPortfolios(res.data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="main-content">
+        <SkeletonTable rows={5} columns={6} />
+      </div>
+    );
+  }
+
+  // We'll flatten the holdings across all portfolios to match the single table view in the screenshot
+  const holdings = portfolios.flatMap(p => p.holdings);
+  
+  // No `|| 1012100` fallbacks here. Those made an empty portfolio display a
+  // fabricated ₹10.1L invested / ₹9.67L current as though they were real
+  // positions. An empty portfolio is worth zero and should say so.
+  const investedValue = holdings.reduce((sum, h) => sum + h.quantity * h.entry_price, 0);
+  const currentValue = portfolios.reduce((sum, p) => sum + p.total_market_value, 0);
+  const totalReturns = currentValue - investedValue;
+  const totalReturnsPct = investedValue > 0 ? (totalReturns / investedValue) * 100 : null;
+
+  // Aggregated from the real per-stock session moves. Only holdings we actually
+  // have a session change for contribute; if none do, the figure is null and
+  // renders as "—" instead of the previous `totalReturns * 0.4` invention.
+  const dayContributions = holdings
+    .map((h) => (dayMoves[h.symbol] ? dayMoves[h.symbol].change * h.quantity : null))
+    .filter((v) => v !== null);
+  const oneDayReturn = dayContributions.length ? dayContributions.reduce((a, b) => a + b, 0) : null;
+  const oneDayReturnPct =
+    oneDayReturn !== null && investedValue > 0 ? (oneDayReturn / investedValue) * 100 : null;
+
   return (
-    <div>
-      <h2>Portfolio</h2>
-      <ErrorMessage message={error} />
-      {loading ? (
-        <Loading label="Loading portfolios..." />
-      ) : portfolios.length === 0 ? (
-        <p className="muted">
-          No saved portfolios yet. Run an analysis on the Analyze page and save the result.
-        </p>
-      ) : (
-        portfolios.map((p) => <PortfolioCard key={p.id} portfolio={p} />)
-      )}
+    <div className="main-content">
+      
+      {/* Page Header Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 500, margin: 0, color: 'var(--text)' }}>
+          {inr(currentValue)}
+        </h1>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Link to="/analyze" className="btn btn-outline" style={{ padding: '8px 16px', borderRadius: 6, fontSize: 13 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 8, verticalAlign: 'middle' }}>
+              <path d="M3 3v18h18" />
+              <path d="m19 9-5 5-4-4-3 3" />
+            </svg>
+            Analyse
+          </Link>
+          <button className="btn btn-outline" style={{ padding: '8px 12px', borderRadius: 6 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Summary Header */}
+      <div className="portfolio-header-metrics">
+        <div className="portfolio-header-metric">
+          <div className="portfolio-header-label">Invested value</div>
+          <div className="portfolio-header-value">{inr(investedValue)}</div>
+        </div>
+        <div className="portfolio-header-metric text-right">
+          <div className="portfolio-header-label">1D returns</div>
+          <div className={`portfolio-header-value ${oneDayReturn === null ? "" : oneDayReturn >= 0 ? "positive" : "negative"}`}>
+            {oneDayReturn === null
+              ? "—"
+              : `${oneDayReturn >= 0 ? "+" : ""}${inr(oneDayReturn)}${
+                  oneDayReturnPct !== null ? ` (${Math.abs(oneDayReturnPct).toFixed(2)}%)` : ""
+                }`}
+          </div>
+        </div>
+        <div className="portfolio-header-metric text-right">
+          <div className="portfolio-header-label">Total returns</div>
+          <div className={`portfolio-header-value ${totalReturns >= 0 ? 'positive' : 'negative'}`}>
+            {totalReturns >= 0 ? '+' : ''}{inr(totalReturns)}
+            {totalReturnsPct !== null ? ` (${Math.abs(totalReturnsPct).toFixed(2)}%)` : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* Holdings Table */}
+      <div className="groww-table-wrap">
+        <table className="groww-table">
+          <thead>
+            <tr>
+              <th style={{ width: '30%' }}>
+                Company <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+              </th>
+              <th style={{ width: '20%' }}></th>
+              <th className="text-right">
+                Market price (1D%) <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+              </th>
+              <th className="text-right">
+                Returns (%) <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+              </th>
+              <th className="text-right">
+                Current (Invested) <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {holdings.map((h, i) => {
+              const currentVal = h.quantity * (h.current_price || h.entry_price);
+              const investedVal = h.quantity * h.entry_price;
+              const returns = h.unrealized_pnl || 0;
+              const returnsPct = h.unrealized_pnl_pct || 0;
+              const isPositive = returns >= 0;
+
+              // Real session change, from the last two closes served by
+              // /market/overview. Previously this was `returns * 0.1` — a
+              // fabricated number rendered as if it were an actual day move.
+              // Null when the session data has not loaded or the stock is not
+              // in the active universe; the cell renders "—" rather than a guess.
+              const day = dayMoves[h.symbol] || null;
+              const isOneDayPositive = day ? day.change_pct >= 0 : false;
+
+              return (
+                <tr key={h.id || i}>
+                  <td>
+                    <Link to={`/stocks/${h.symbol}`} className="groww-company-name" style={{ textDecoration: 'none', display: 'block', marginBottom: 4 }}>
+                      {h.symbol}
+                    </Link>
+                    <div className="groww-company-sub">
+                      {h.quantity} shares • Avg. {inr(h.entry_price)}
+                    </div>
+                  </td>
+                  <td>
+                    <Sparkline symbol={h.symbol} width={100} height={24} />
+                  </td>
+                  <td className="text-right">
+                    <div style={{ color: 'var(--text)', marginBottom: 4 }}>
+                      {inr(h.current_price || h.entry_price)}
+                    </div>
+                    <div
+                      className={day ? (isOneDayPositive ? "text-bullish" : "text-danger") : "muted"}
+                      style={{ fontSize: 13, fontWeight: 500 }}
+                    >
+                      {day
+                        ? `${isOneDayPositive ? "+" : ""}${(day.change * h.quantity).toFixed(2)} (${Math.abs(day.change_pct).toFixed(2)}%)`
+                        : "—"}
+                    </div>
+                  </td>
+                  <td className="text-right">
+                    <div style={{ color: 'var(--text)', marginBottom: 4 }}>
+                      {returns >= 0 ? '+' : ''}{inr(returns)}
+                    </div>
+                    <div style={{ color: isPositive ? '#00b386' : '#eb5b3c', fontSize: 13, fontWeight: 500 }}>
+                      {Math.abs(returnsPct).toFixed(2)}%
+                    </div>
+                  </td>
+                  <td className="text-right">
+                    <div style={{ color: 'var(--text)', marginBottom: 4 }}>
+                      {inr(currentVal)}
+                    </div>
+                    <div className="groww-company-sub">
+                      {inr(investedVal)}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {holdings.length === 0 && (
+              <tr>
+                <td colSpan="5" className="text-center" style={{ padding: 48, color: 'var(--text-muted)' }}>
+                  No investments found in your paper account.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
     </div>
   );
 }

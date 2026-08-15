@@ -30,6 +30,11 @@ class Levels:
     target_price: float
     risk_reward: float
     stop_method: str  # "atr" or "support"
+    # Carried explicitly rather than left to be inferred from the zone width.
+    # The zone is [close - 0.5*ATR, close], so its width is HALF an ATR — code
+    # that back-computed `atr = entry_high - entry_low` was silently off by 2x
+    # and reported every ATR-relative distance at double its true value.
+    atr: float
 
 
 def _wilder_atr(true_range: pd.Series, period: int = ATR_PERIOD) -> pd.Series:
@@ -61,14 +66,20 @@ def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     return tr
 
 
-def compute_levels(price_df: pd.DataFrame) -> Levels | None:
+def compute_levels(price_df: pd.DataFrame, params: "StrategyParams | None" = None) -> Levels | None:
     """price_df: columns [date, open, high, low, close], sorted ascending.
+
+    `params` injects the exit geometry so the optimiser can sweep it. Omitted,
+    it falls back to the live defaults and behaves exactly as before.
 
     Returns None if there isn't enough history for ATR, if the latest close
     or ATR is missing, or if the computed stop would sit at/above entry (a
     genuinely invalid setup — not something to paper over with a fallback
     number).
     """
+    from app.core.strategy_params import StrategyParams  # local: avoids an import cycle
+
+    params = params or StrategyParams()
     df = price_df.sort_values("date").reset_index(drop=True)
     if len(df) < ATR_PERIOD:
         return None
@@ -88,16 +99,16 @@ def compute_levels(price_df: pd.DataFrame) -> Levels | None:
 
     entry = float(close.iloc[-1])
     latest_atr = float(latest_atr)
-    entry_low = entry - ENTRY_ZONE_ATR_MULTIPLIER * latest_atr
+    entry_low = entry - params.entry_zone_atr_multiplier * latest_atr
     entry_high = entry
 
-    atr_stop = entry - ATR_STOP_MULTIPLIER * latest_atr
+    atr_stop = entry - params.atr_stop_multiplier * latest_atr
 
     # 20-day rolling low as the "nearest support" — only used once a full
     # window of history exists, same warm-up rule as everywhere else.
     support = None
-    if len(low) >= SUPPORT_LOOKBACK_DAYS:
-        window_low = float(low.tail(SUPPORT_LOOKBACK_DAYS).min())
+    if params.use_support_stop and len(low) >= params.support_lookback_days:
+        window_low = float(low.tail(params.support_lookback_days).min())
         if not pd.isna(window_low):
             support = window_low
 
@@ -114,16 +125,68 @@ def compute_levels(price_df: pd.DataFrame) -> Levels | None:
         return None
 
     risk_per_share = entry - stop_loss
-    target_price = entry + RISK_REWARD_RATIO * risk_per_share
+    target_price = entry + params.risk_reward_ratio * risk_per_share
 
     return Levels(
         entry_low=round(entry_low, 2),
         entry_high=round(entry_high, 2),
         stop_loss=round(stop_loss, 2),
         target_price=round(target_price, 2),
-        risk_reward=RISK_REWARD_RATIO,
+        risk_reward=params.risk_reward_ratio,
         stop_method=stop_method,
+        atr=round(latest_atr, 2),
     )
+
+
+def levels_from_atr(entry: float, latest_atr: float, support_low: float | None, params=None) -> Levels | None:
+    """Build levels from an already-computed ATR and 20-day low.
+
+    Same arithmetic as compute_levels, without the Wilder recursion. Exists
+    because ATR does not depend on any swept parameter: a stop-multiplier sweep
+    recomputing it per candidate spends all its time re-deriving an identical
+    number. Kept beside compute_levels so the two cannot drift apart.
+    """
+    from app.core.strategy_params import StrategyParams
+
+    params = params or StrategyParams()
+    entry_low = entry - params.entry_zone_atr_multiplier * latest_atr
+    atr_stop = entry - params.atr_stop_multiplier * latest_atr
+
+    if params.use_support_stop and support_low is not None and support_low > atr_stop:
+        stop_loss, stop_method = support_low, "support"
+    else:
+        stop_loss, stop_method = atr_stop, "atr"
+
+    if stop_loss >= entry:
+        return None
+
+    risk_per_share = entry - stop_loss
+    return Levels(
+        entry_low=round(entry_low, 2),
+        entry_high=round(entry, 2),
+        stop_loss=round(stop_loss, 2),
+        target_price=round(entry + params.risk_reward_ratio * risk_per_share, 2),
+        risk_reward=params.risk_reward_ratio,
+        stop_method=stop_method,
+        atr=round(latest_atr, 2),
+    )
+
+
+def atr_and_support(price_df: pd.DataFrame, lookback: int = SUPPORT_LOOKBACK_DAYS):
+    """(latest ATR, 20-day low, latest close) — the parameter-independent inputs."""
+    df = price_df.sort_values("date").reset_index(drop=True)
+    if len(df) < ATR_PERIOD:
+        return None, None, None
+    high, low, close = df["high"].astype(float), df["low"].astype(float), df["close"].astype(float)
+    if pd.isna(close.iloc[-1]):
+        return None, None, None
+    latest_atr = _wilder_atr(_true_range(high, low, close), ATR_PERIOD).iloc[-1]
+    if pd.isna(latest_atr):
+        return None, None, None
+    support = float(low.tail(lookback).min()) if len(low) >= lookback else None
+    if support is not None and pd.isna(support):
+        support = None
+    return float(latest_atr), support, float(close.iloc[-1])
 
 
 def load_ohlc_df(db: Session, stock_id: int) -> pd.DataFrame:
@@ -136,8 +199,8 @@ def load_ohlc_df(db: Session, stock_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["date", "open", "high", "low", "close"])
 
 
-def compute_levels_for_stock(db: Session, stock_id: int) -> Levels | None:
+def compute_levels_for_stock(db: Session, stock_id: int, params=None) -> Levels | None:
     ohlc = load_ohlc_df(db, stock_id)
     if ohlc.empty:
         return None
-    return compute_levels(ohlc)
+    return compute_levels(ohlc, params)

@@ -23,6 +23,7 @@ def size_position(
     capital: float,
     risk_appetite: str,
     max_allocation_per_stock: float,
+    risk_pct: float | None = None,
 ) -> PositionSize:
     """shares = floor(max_loss / risk_per_share), then capped so the
     position doesn't exceed max_allocation_per_stock (an absolute rupee
@@ -30,7 +31,7 @@ def size_position(
     if stop_loss >= entry:
         return PositionSize(0, 0.0, 0.0, False, rejection_reason="stop_loss at or above entry")
 
-    risk_pct = RISK_PCT_PER_TRADE[risk_appetite]
+    risk_pct = (risk_pct if risk_pct is not None else RISK_PCT_PER_TRADE[risk_appetite])
     max_loss = capital * risk_pct
     risk_per_share = entry - stop_loss
 

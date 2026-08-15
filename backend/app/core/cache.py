@@ -79,3 +79,53 @@ def get_backtest_cache(config_hash: str) -> dict | None:
 
 def set_backtest_cache(config_hash: str, value: dict) -> None:
     _set_json(backtest_key(config_hash), value, TTL_BACKTEST)
+
+
+# ── Live prices (written by scheduler, read by WS endpoint & REST fallback) ──
+
+TTL_LIVE_PRICES = 90  # seconds — expires if scheduler misses 1 tick
+
+# The frozen last-session snapshot. Long-lived on purpose: the 90s key above is
+# a liveness signal (is the refresher currently ticking?), and letting it expire
+# is how "the market is open" stops being true. But the PRICES themselves should
+# not disappear with it — when NSE shuts, the tape should hold at the last
+# traded price rather than emptying out. A week covers a long weekend plus
+# holidays; anything older is genuinely stale and better shown as absent.
+TTL_SESSION_SNAPSHOT = 7 * 24 * 3600
+
+
+def live_prices_key() -> str:
+    return "live:prices"
+
+
+def session_snapshot_key() -> str:
+    return "live:prices:session"
+
+
+def get_live_prices() -> dict | None:
+    """Prices from a currently-ticking refresher, or None when it is not running.
+
+    None means "the market is not open right now", not "there are no prices" —
+    callers wanting the last known values should use get_session_snapshot().
+    """
+    return _get_json(live_prices_key())
+
+
+def set_live_prices(value: dict) -> None:
+    _set_json(live_prices_key(), value, TTL_LIVE_PRICES)
+
+
+def get_session_snapshot() -> dict | None:
+    """Last captured prices with their capture time.
+
+    Shape: {"prices": {...}, "captured_at": iso8601, "session_date": "YYYY-MM-DD"}
+    """
+    return _get_json(session_snapshot_key())
+
+
+def set_session_snapshot(prices: dict, captured_at: str, session_date: str) -> None:
+    _set_json(
+        session_snapshot_key(),
+        {"prices": prices, "captured_at": captured_at, "session_date": session_date},
+        TTL_SESSION_SNAPSHOT,
+    )

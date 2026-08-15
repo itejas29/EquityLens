@@ -4,7 +4,7 @@ export default function ScoreBar({ label, value }) {
     <div className="score-bar-row">
       <span className="score-bar-label">{label}</span>
       <span className="score-bar-track">
-        <span className="score-bar-fill" style={{ width: `${pct}%`, opacity: value == null ? 0.15 : 1 }} />
+        <span className="score-bar-mask" style={{ width: `${100 - pct}%`, opacity: value == null ? 0.9 : 1 }} />
       </span>
       <span className="score-bar-value">{value == null ? "—" : value.toFixed(0)}</span>
     </div>

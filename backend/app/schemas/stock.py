@@ -68,3 +68,34 @@ class RefreshResponse(BaseModel):
     symbol: str
     price_rows_upserted: int
     fundamentals_missing_fields: list[str]
+
+
+class SearchHit(BaseModel):
+    symbol: str
+    company_name: str
+    series: str
+    isin: str | None
+    # False means the ticker exists on NSE but has no price history stored yet;
+    # the client can offer to ingest it rather than showing a dead result.
+    is_ingested: bool
+
+
+class SearchResponse(BaseModel):
+    query: str
+    count: int
+    catalogue_size: int
+    results: list[SearchHit]
+
+
+class IngestResponse(BaseModel):
+    symbol: str
+    price_rows: int
+    indicator_rows: int
+    missing_fundamentals: list[str]
+
+
+class CatalogueLoadResponse(BaseModel):
+    fetched: int
+    added: int
+    updated: int
+    total: int

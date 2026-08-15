@@ -28,7 +28,13 @@ class PaperTrade(Base):
     stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), nullable=False)
     side: Mapped[str] = mapped_column(String(10), nullable=False)  # "buy" (long only, no shorting)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # cost-loaded entry fill price
+    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # cost-loaded entry fill price, per share
+    # Exact cash debited from the account to open this position (notional +
+    # entry commission), stored because `price` is rounded to the paisa and
+    # `price * quantity` therefore drifts from what the ledger actually paid.
+    # All P&L is measured against this so realized/unrealized always reconcile
+    # with cash — see the P&L identity documented in services/paper_trading.py.
+    cost_basis: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="open")  # "open" | "closed"
     exit_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)

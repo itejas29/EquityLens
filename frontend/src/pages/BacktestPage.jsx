@@ -3,6 +3,8 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { apiClient, apiErrorMessage } from "../api/client";
 import ErrorMessage from "../components/ErrorMessage";
 import Loading from "../components/Loading";
+import PageHeader from "../components/PageHeader";
+import { chartColors, tooltipStyle } from "../lib/chartTheme";
 
 const METRIC_LABELS = {
   total_return_pct: "Total return",
@@ -88,7 +90,10 @@ export default function BacktestPage() {
 
   return (
     <div>
-      <h2>Backtest</h2>
+      <PageHeader
+        title="Backtest"
+        subtitle="Replay the scoring strategy over a historical window and compare it against NIFTY 50 buy & hold. Past performance does not indicate future returns."
+      />
       <ErrorMessage message={error} />
       <form onSubmit={handleSubmit} className="card" style={{ marginBottom: 24 }}>
         <div className="form-grid">
@@ -135,7 +140,7 @@ export default function BacktestPage() {
         <>
           <p className="muted" style={{ marginBottom: 16 }}>{result.methodology_note}</p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+          <div className="split-grid" style={{ marginBottom: 20 }}>
             <MetricsTable metrics={result.metrics} title="Strategy" />
             <MetricsTable metrics={result.benchmark_metrics} title="NIFTY 50 buy & hold" />
           </div>
@@ -144,20 +149,20 @@ export default function BacktestPage() {
             <div className="section-title">Equity curve vs benchmark</div>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e5ea" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={40} />
-                <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: chartColors.axis }} minTickGap={40} stroke={chartColors.grid} />
+                <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11, fill: chartColors.axis }} stroke={chartColors.grid} />
+                <Tooltip {...tooltipStyle} />
                 <Legend />
-                <Line type="monotone" dataKey="strategy" stroke="#2563eb" dot={false} name="Strategy" strokeWidth={2} />
-                <Line type="monotone" dataKey="benchmark" stroke="#6b7280" dot={false} name="NIFTY 50" strokeWidth={1.5} />
+                <Line type="monotone" dataKey="strategy" stroke={chartColors.accent} dot={false} name="Strategy" strokeWidth={2} />
+                <Line type="monotone" dataKey="benchmark" stroke={chartColors.muted} dot={false} name="NIFTY 50" strokeWidth={1.5} />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
           <div className="card">
             <div className="section-title">Trade log ({result.trade_log.length})</div>
-            <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            <div className="table-wrap" style={{ maxHeight: 400, overflowY: "auto" }}>
               <table>
                 <thead>
                   <tr>
@@ -174,14 +179,14 @@ export default function BacktestPage() {
                 <tbody>
                   {result.trade_log.map((t, i) => (
                     <tr key={i}>
-                      <td>{t.symbol}</td>
+                      <td style={{ fontWeight: 700 }}>{t.symbol}</td>
                       <td>{t.entry_date}</td>
                       <td>{t.exit_date}</td>
                       <td>{t.entry_price}</td>
                       <td>{t.exit_price}</td>
                       <td>{t.quantity}</td>
-                      <td style={{ color: t.pnl >= 0 ? "#15803d" : "#b91c1c" }}>{t.pnl}</td>
-                      <td>{t.exit_reason}</td>
+                      <td className={t.pnl >= 0 ? "pnl-positive" : "pnl-negative"}>{t.pnl}</td>
+                      <td style={{ fontFamily: "var(--font-ui)", color: "var(--text-muted)" }}>{t.exit_reason}</td>
                     </tr>
                   ))}
                 </tbody>

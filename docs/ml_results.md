@@ -2,9 +2,127 @@
 
 Secondary signal only — a probability estimate shown alongside the rule-based
 recommendation, never blended into `overall_score`. All numbers below are
-copied directly from a real training run against the seeded 40-stock
-universe (`app/ml/artifacts/latest.json`, trained 2026-08-14). Nothing here
-has been hand-tuned to look better.
+copied directly from real training runs (`app/ml/artifacts/latest.json`).
+Nothing here has been hand-tuned to look better.
+
+## Improvement attempt (2026-08-15) — measurable, still not enough
+
+Three principled changes, each motivated before it was made, not selected by
+whichever produced a better test score:
+
+**1. Relative-strength features — a target/feature mismatch.** The target asks
+a *relative* question ("does this beat ^NSEI over 20 days?") but every original
+feature was *absolute* (own RSI, own distance from own moving average). Nothing
+described the stock versus the index. Added `rel_5/20/60/120` (trailing return
+minus benchmark return — the same quantity as the target, pointed backwards),
+own trailing returns, and 52-week range position.
+
+**2. Cross-sectional ranks.** "Beats the index" is really "beats the average
+stock", so each date's features are also expressed as percentile ranks within
+that day's universe (`cs_*`). This neutralises market-wide moves that otherwise
+dominate absolute features.
+
+**3. History depth 2y → 5y.** At 2y the 252-day beta warm-up left only **243
+usable dates** — under a year of distinct observations from a single regime.
+5y gives **981** across several regimes. Cost: 2.8 minutes, 0 failures.
+
+Two bugs found and fixed along the way:
+
+- **Model selection read the test set.** `selected_model` compared *test* ROC-AUC
+  between LR and RF, which turned the test split into a selection set and made
+  the reported figure optimistic. Now selected on validation AUC; the test split
+  is touched once, for the final report.
+- **RF capacity never scaled with the data.** `max_depth=5` was set when training
+  had 770 rows; it now has 232,269. Depth is now chosen from a grid on
+  validation (5/10/16/24 → **10** won at 0.5291; 16 and 24 were worse, so the
+  underfit was real but shallow).
+
+### Measured progression
+
+| Run | Dataset | Best test ROC-AUC |
+|---|---|---|
+| 40-stock, 2y | 1,100 rows / 40 stocks | 0.7341 — small-sample artifact |
+| 500-stock, 2y, absolute features | 80,846 rows / 375 stocks | 0.5136 |
+| + relative & cross-sectional features, 5y | 331,814 rows | 0.5301 |
+| + validation-selected depth, leak fixed | 331,814 rows | **0.5369** |
+
+**Result: 0.5136 → 0.5369.** A real improvement, and still below the 0.55
+serving bar, so the model remains unserved. Top-30% precision did improve to
+0.6194 against a 0.5897 base rate (+3.0 points, up from +1.3), and the ML
+ranking beat the rule-based score's 0.546 on the same rows — but on a
+one-window diagnostic over 20 sampled dates, that is suggestive, not decided.
+
+I stopped here rather than continuing. The remaining moves — sweeping
+hyperparameters until the *test* number cleared 0.55, or lowering the bar —
+would produce a better-looking figure and the same model.
+
+## Headline: the model is currently NOT SERVED
+
+Retrained 2026-08-14 on the 500-stock universe: **80,846 rows across 375
+stocks**, up from 1,100 rows across 40. On that much larger and more
+realistic sample the best model scored a **test ROC-AUC of 0.5136** — a coin
+flip. `app/ml/predict.py` therefore refuses to serve it (`MIN_SERVABLE_ROC_AUC
+= 0.55`) and `ml_probability` reads as `null` everywhere in the API.
+
+**The earlier 0.7341 ROC-AUC was an artifact of a tiny sample.** That figure
+came from a 165-row test window on 40 large-caps. Testing on 12,127 rows
+across 375 stocks, the apparent edge disappeared. The honest conclusion is
+that the earlier number never measured a real edge — it measured a small
+sample. It is left documented below rather than deleted, because "we reported
+0.73 and it did not survive a bigger test" is the useful record.
+
+### Measured comparison
+
+| | Old run (40 stocks) | New run (500 stocks) |
+|---|---|---|
+| Rows used | 1,100 | 80,846 |
+| Contributing stocks | 40 | 375 |
+| Test rows | 165 | 12,127 |
+| Best test ROC-AUC | 0.7341 (LR) | **0.5136 (RF)** |
+| Served? | yes | **no — below the 0.55 bar** |
+
+### Why the dataset grew
+
+`roe` was dropped from the feature set on coverage grounds, decided from
+these counts before any model was fitted:
+
+```
+pe 474/500 · pb 498/500 · debt_to_equity 457/500 · revenue_growth 496/500
+eps_growth 456/500 · operating_margin 500/500 · roe 78/500
+```
+
+Because a row is dropped when *any* feature is missing, `roe` alone collapsed
+the trainable set to 46 stocks. `operating_margin` (500/500 coverage) replaced
+it. This is why the sample grew 8x — not a modelling change.
+
+### What the 2026-08-14 500-stock run measured
+
+- Majority-class baseline test accuracy: **0.4492**
+- LogisticRegression: accuracy 0.4878, ROC-AUC **0.4957** (below random)
+- RandomForest: accuracy 0.4871, ROC-AUC **0.5136** (selected on validation
+  accuracy 0.4614 vs 0.4181, then failed the serving bar)
+- ML precision at top 30%: 0.5640 against a **0.5508 base rate** — a 1.3
+  point edge, inside noise
+- Rule-based precision at top 30%: 0.4975 — *below* the base rate on this
+  window
+- Spearman rank correlation, ML vs rule-based: 0.0666 (they disagree, and
+  neither is measurably right)
+- Top RF feature importances: `pct_from_50dma` 0.157, `revenue_growth` 0.148,
+  `pct_from_200dma` 0.130
+
+### What would actually be needed
+
+More rows did not help, which points at the features rather than the sample
+size. The binding constraint is that the fundamentals are a **single snapshot
+broadcast across every date** — they can separate stocks from each other but
+carry no information about how any stock changed over time, so effectively the
+model has seven genuine time-varying inputs, all price-derived. Historical
+fundamentals (quarterly filings) would be a real change; more stocks or more
+tuning on this feature set would not.
+
+---
+
+*The original 40-stock writeup follows, kept for the record.*
 
 ## Target
 

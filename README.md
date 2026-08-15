@@ -86,11 +86,17 @@ All endpoints are under `/api/v1`. `*` = requires `Authorization: Bearer <token>
 | POST | `/auth/login` | |
 | GET | `/auth/me` * | |
 | GET | `/stocks` | paginated, `?sector=` filter |
+| GET | `/stocks/search` | `?q=&limit=`, searches all NSE listings |
+| POST | `/stocks/{symbol}/ingest` | on-demand fetch + index, makes a symbol analysable |
+| POST | `/stocks/catalogue/refresh` | reload the NSE equity list |
 | GET | `/stocks/{symbol}` | cached 15m |
 | GET | `/stocks/{symbol}/prices` | `?from=&to=`, never cached |
 | POST | `/stocks/{symbol}/refresh` | re-fetch from yfinance, invalidates caches |
 | POST | `/stocks/{symbol}/compute-indicators` | |
 | GET | `/stocks/{symbol}/indicators` | `?from=&to=` |
+| GET | `/daily-signals` | `?date=`, defaults to most recent published shortlist |
+| GET | `/daily-signals/dates` | dates with a published shortlist |
+| POST | `/daily-signals/run` | manual trigger for the 09:15 IST job, rate-limited |
 | POST | `/stocks/{symbol}/score` | rate-limited |
 | POST | `/scoring/run-universe` | rate-limited, invalidates scored-universe cache |
 | GET | `/recommendations` | `?min_score=&sector=&limit=`, rate-limited |
@@ -105,6 +111,92 @@ All endpoints are under `/api/v1`. `*` = requires `Authorization: Bearer <token>
 | POST | `/paper/buy` * | same transaction cost model as backtesting |
 | POST | `/paper/sell` * | |
 | GET | `/paper/account` * | mark-to-market, realized/unrealized P&L, win rate, drawdown |
+
+## Universe: catalogue vs. ingested
+
+Two populations, deliberately separate:
+
+- **`nse_symbols`** — the searchable catalogue. Every NSE-listed equity, loaded
+  from NSE's own published `EQUITY_L.csv` (**2,406 symbols**, 2,126 of them in
+  the `EQ` rolling-settlement series). One HTTP request for the whole exchange,
+  no per-symbol market-data calls. This is what `/stocks/search` queries.
+- **`stocks`** — the ingested set. Symbols with real price history, indicators
+  and fundamentals stored, which is what can actually be scored.
+
+Search covers the whole exchange; results are annotated with `is_ingested` so a
+client can tell "we have data on this" from "this exists and can be pulled".
+Opening a symbol that isn't ingested yet pulls it on demand —
+measured at **~3 seconds** for 500 price rows plus 500 indicator rows.
+
+### How the scored universe is built
+
+`scripts/build_universe.py` screens the whole exchange in two stages, because
+yfinance batches price history but has no batch endpoint for fundamentals.
+
+| Stage | What it does | Measured |
+|---|---|---|
+| 1. Screen | Batched 3mo prices for all 2,126 listings → 20-day average traded value → keep the top N | **~14 min**, nothing written |
+| 2. Ingest | Full 2y history (batched) + fundamentals (serial) + indicators for survivors | **~17 min** for 500 |
+
+One measured run: 2,126 listings considered, 2,125 returned price data, 500
+cleared the ₹5cr/day floor (the `MAX_UNIVERSE_SIZE` cap bound before the floor
+did), 500 ingested and indexed. Scoring all 500 then takes **~3 seconds**.
+
+Bulk-ingesting all 2,126 was rejected on purpose — at ~0.83s per fundamentals
+call that alone is ~29 minutes every run, and the extra names are too illiquid
+for the published ATR levels to be executable.
+
+**Rate limiting is the main failure mode.** Stage 2 originally ran with a 0.4s
+delay and hit `YFRateLimitError` immediately; because `fetch_stock_meta` turns
+an exhausted retry into `SymbolNotFoundError`, ~60 symbols were recorded as
+"no data" when they were merely throttled. The delay is now 0.9s with a 30s gap
+between stages, and `--repair` re-runs stage 2 for any stock left with prices
+but no indicators without repeating the 14-minute screen.
+
+`is_active` is what every downstream query filters on — stocks that fall below
+the floor are deactivated, never deleted, so their history and past
+recommendations survive.
+
+**Caveat that matters:** the fundamental and valuation sub-scores are percentile
+ranks *against the ingested universe*, so ingesting a new stock shifts every
+other stock's score. Scores are therefore comparable within a scoring run, not
+across runs that had different universes. `POST /stocks/{symbol}/ingest`
+invalidates the scored-universe cache for exactly this reason.
+
+## Daily shortlist
+
+A background task publishes a dated, frozen shortlist once per trading day at
+09:15 IST (`app/core/scheduler.py` → `daily_signals_loop`). It is the app's
+default screen (`/today`); the full scored universe stays available behind it.
+
+It differs from `/recommendations` in three ways:
+
+- **Gated.** A stock is excluded unless both price-derived sub-scores
+  (technical, risk) are present, ATR levels are computable, and its most recent
+  close is under 7 days old. The scoring engine renormalizes around missing
+  inputs by design, which means a stock with no usable price series can still
+  produce a composite from fundamentals and valuation alone — fine for a
+  research table, not for a dated entry level. Those are dropped rather than
+  shown with a caveat. Thresholds live in `app/core/daily_signals_config.py`.
+- **Frozen.** Scores and levels are written once for the date and never
+  recomputed, so a past day's shortlist can be reviewed as it was published.
+  Live price is compared against the frozen zone at read time only.
+- **Explained.** Each entry carries plain-English clauses generated from the
+  same computed values that produced the score — trend vs. the 50/200-day
+  averages, RSI band, MACD sign, beta, max drawdown, P/E vs. sector median,
+  revenue growth. Negatives are emitted as `caution` clauses and shown
+  alongside the positives, never suppressed.
+
+Capped at 8 names with a 2-per-sector limit. Re-running for a date replaces
+that date's rows.
+
+The UI states a direct call — BUY NOW / BUY / WAIT — derived from where the
+live price sits against the frozen entry zone. Price above the zone is always
+a WAIT: past the entry range the stop is proportionally further away, which
+breaks the 1:2 the target was set for. This is a private tool for a known
+group, not a published research product; the decisive wording does not come
+with any claim of accuracy, and the measured backtest below still shows the
+strategy underperforming a NIFTY 50 buy-and-hold over the tested window.
 
 ## Scoring methodology
 

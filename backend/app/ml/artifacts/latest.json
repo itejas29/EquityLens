@@ -1,5 +1,5 @@
 {
-  "trained_at": "20260814_031632",
+  "trained_at": "20260815_031441",
   "feature_columns": [
     "rsi_14",
     "macd_hist",
@@ -8,130 +8,222 @@
     "volume_ratio",
     "volatility",
     "beta",
+    "ret_5",
+    "ret_20",
+    "ret_60",
+    "ret_120",
+    "rel_5",
+    "rel_20",
+    "rel_60",
+    "rel_120",
+    "dist_52w_high",
+    "dist_52w_low",
+    "cs_rel_20",
+    "cs_rel_60",
+    "cs_ret_20",
+    "cs_ret_60",
+    "cs_pct_from_50dma",
+    "cs_pct_from_200dma",
+    "cs_volatility",
+    "cs_dist_52w_high",
     "pe_ratio",
     "pb_ratio",
-    "roe",
     "debt_to_equity",
     "revenue_growth",
-    "eps_growth"
+    "eps_growth",
+    "operating_margin"
   ],
-  "dataset_rows": 1100,
-  "train_rows": 770,
-  "val_rows": 165,
-  "test_rows": 165,
+  "dataset_rows": 331814,
+  "train_rows": 232269,
+  "val_rows": 49772,
+  "test_rows": 49773,
   "train_date_range": [
-    "2025-08-18",
-    "2026-04-06"
+    "2022-08-22",
+    "2025-06-06"
   ],
   "test_date_range": [
-    "2026-05-27",
-    "2026-07-16"
+    "2025-12-23",
+    "2026-07-17"
   ],
   "majority_class": 1,
-  "majority_baseline_test_accuracy": 0.5091,
+  "majority_baseline_test_accuracy": 0.5844,
   "logistic_regression": {
-    "val_accuracy": 0.5758,
+    "val_accuracy": 0.4706,
+    "val_roc_auc": 0.5077,
     "test": {
-      "accuracy": 0.5515,
-      "precision": 0.6786,
-      "recall": 0.2262,
-      "f1": 0.3393,
-      "roc_auc": 0.7341,
+      "accuracy": 0.5528,
+      "precision": 0.5945,
+      "recall": 0.7382,
+      "f1": 0.6586,
+      "roc_auc": 0.5308,
       "confusion_matrix": [
         [
-          72,
-          9
+          6043,
+          14644
         ],
         [
-          65,
-          19
+          7616,
+          21470
         ]
       ]
     }
   },
   "random_forest": {
-    "val_accuracy": 0.6061,
+    "val_accuracy": 0.5311,
+    "val_roc_auc": 0.5291,
     "test": {
-      "accuracy": 0.5212,
-      "precision": 0.6471,
-      "recall": 0.131,
-      "f1": 0.2178,
-      "roc_auc": 0.5657,
+      "accuracy": 0.512,
+      "precision": 0.6135,
+      "recall": 0.4457,
+      "f1": 0.5163,
+      "roc_auc": 0.5369,
       "confusion_matrix": [
         [
-          75,
-          6
+          12521,
+          8166
         ],
         [
-          73,
-          11
+          16123,
+          12963
         ]
       ]
     },
     "feature_importances": [
       [
-        "pct_from_50dma",
-        0.15001291898782088
-      ],
-      [
-        "beta",
-        0.14988281893106173
-      ],
-      [
         "volatility",
-        0.14337208113687455
-      ],
-      [
-        "rsi_14",
-        0.12754826879526662
-      ],
-      [
-        "pct_from_200dma",
-        0.1232160636643685
-      ],
-      [
-        "macd_hist",
-        0.11763361176479079
-      ],
-      [
-        "volume_ratio",
-        0.10109899342014511
-      ],
-      [
-        "eps_growth",
-        0.0171216257984032
-      ],
-      [
-        "revenue_growth",
-        0.01601829947515833
-      ],
-      [
-        "roe",
-        0.015282096813692173
-      ],
-      [
-        "debt_to_equity",
-        0.014365552238584102
-      ],
-      [
-        "pe_ratio",
-        0.013058630735665119
+        0.06767985537864041
       ],
       [
         "pb_ratio",
-        0.01138903823816907
+        0.06056650916613261
+      ],
+      [
+        "beta",
+        0.05858221560959641
+      ],
+      [
+        "cs_volatility",
+        0.058539665427219716
+      ],
+      [
+        "debt_to_equity",
+        0.05144769223436645
+      ],
+      [
+        "operating_margin",
+        0.04835824471640512
+      ],
+      [
+        "eps_growth",
+        0.041915405719958276
+      ],
+      [
+        "revenue_growth",
+        0.041413573489842447
+      ],
+      [
+        "pe_ratio",
+        0.04137255774760715
+      ],
+      [
+        "pct_from_200dma",
+        0.03998523176021614
+      ],
+      [
+        "dist_52w_low",
+        0.0391169557342186
+      ],
+      [
+        "ret_60",
+        0.03891825100170762
+      ],
+      [
+        "cs_pct_from_200dma",
+        0.035275360818612
+      ],
+      [
+        "dist_52w_high",
+        0.03492606574982144
+      ],
+      [
+        "ret_120",
+        0.034797773222289004
+      ],
+      [
+        "cs_dist_52w_high",
+        0.03271631198158989
+      ],
+      [
+        "pct_from_50dma",
+        0.030959613227087603
+      ],
+      [
+        "rel_120",
+        0.03023115358787654
+      ],
+      [
+        "macd_hist",
+        0.027666187176930646
+      ],
+      [
+        "rel_60",
+        0.026638715164890463
+      ],
+      [
+        "cs_ret_60",
+        0.021356229382919676
+      ],
+      [
+        "cs_rel_60",
+        0.0209313249489854
+      ],
+      [
+        "cs_pct_from_50dma",
+        0.01870720079293718
+      ],
+      [
+        "rel_20",
+        0.01823816260399433
+      ],
+      [
+        "ret_20",
+        0.018011097253784986
+      ],
+      [
+        "rsi_14",
+        0.015210395143910468
+      ],
+      [
+        "cs_rel_20",
+        0.013176005912570385
+      ],
+      [
+        "cs_ret_20",
+        0.012897172574881505
+      ],
+      [
+        "rel_5",
+        0.007591928149536781
+      ],
+      [
+        "ret_5",
+        0.007135232192004199
+      ],
+      [
+        "volume_ratio",
+        0.005637912129466711
       ]
     ]
   },
-  "rf_artifact": "rf_20260814_031632.joblib",
-  "lr_artifact": "lr_20260814_031632.joblib",
-  "selected_model": "logistic_regression",
-  "selected_artifact": "lr_20260814_031632.joblib",
+  "rf_artifact": "rf_20260815_031441.joblib",
+  "lr_artifact": "lr_20260815_031441.joblib",
+  "selected_model": "random_forest",
+  "selected_artifact": "rf_20260815_031441.joblib",
   "ml_vs_rule_based": {
-    "comparable_rows": 165,
-    "base_rate_target_1": 0.5091,
-    "ml_precision_at_top_30pct": 0.6327,
-    "rule_based_precision_at_top_30pct": 0.3469,
-    "spearman_rank_correlation_ml_vs_rule_based": -0.4583
+    "comparable_rows": 7316,
+    "base_rate_target_1": 0.5897,
+    "ml_precision_at_top_30pct": 0.6194,
+    "rule_based_precision_at_top_30pct": 0.546,
+    "spearman_rank_correlation_ml_vs_rule_based": 0.2017
   }
 }

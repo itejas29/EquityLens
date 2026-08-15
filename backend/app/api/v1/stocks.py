@@ -18,7 +18,18 @@ from app.models.price_history import PriceHistory
 from app.models.stock import Stock
 from app.schemas.indicator import ComputeIndicatorsResponse, IndicatorPoint
 from app.schemas.recommendation import RecommendationResponse
-from app.schemas.stock import PricePoint, RefreshResponse, StockDetail, StockListResponse
+from app.schemas.stock import (
+    CatalogueLoadResponse,
+    IngestResponse,
+    PricePoint,
+    RefreshResponse,
+    SearchHit,
+    SearchResponse,
+    StockDetail,
+    StockListResponse,
+)
+from app.services.catalogue import CatalogueError, catalogue_size, in_catalogue, load_catalogue, search_catalogue
+from app.services.onboarding import IngestionError, ingest_symbol
 from app.services.indicators import compute_indicators, fetch_benchmark_df, load_price_history_df
 from app.services.levels import compute_levels_for_stock
 from app.ml.predict import predict_probability
@@ -51,9 +62,83 @@ def list_stocks(
     return StockListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+# NOTE: /search and /catalogue must be declared before /{symbol}, or FastAPI
+# matches them as a symbol named "search" and returns a 404 instead.
+@router.get("/search", response_model=SearchResponse)
+def search_stocks(
+    q: str = Query(..., min_length=1, description="Symbol or company name"),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> SearchResponse:
+    """Search every NSE-listed equity, not just the ingested ones.
+
+    Hits are annotated with `is_ingested` so the client can distinguish "we
+    have data on this" from "this exists and can be pulled on demand".
+    """
+    results = search_catalogue(db, q, limit=limit)
+    return SearchResponse(
+        query=q,
+        count=len(results),
+        catalogue_size=catalogue_size(db),
+        results=[SearchHit(**r) for r in results],
+    )
+
+
+@router.post("/{symbol}/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
+def ingest_stock(symbol: str, db: Session = Depends(get_db)) -> IngestResponse:
+    """Pull a symbol's history on demand and make it analysable.
+
+    Idempotent: re-ingesting an existing symbol just refreshes it. Rate-limited
+    with the other market-data-hitting endpoints, since each call is several
+    upstream requests.
+    """
+    symbol = symbol.upper()
+    if in_catalogue(db, symbol) is None:
+        raise AppError(
+            f"'{symbol}' is not in the NSE equity catalogue. Check the ticker, or refresh the "
+            "catalogue if it is a recent listing.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        _, report = ingest_symbol(db, symbol)
+    except IngestionError as exc:
+        db.rollback()
+        raise AppError(exc.message, status_code=status.HTTP_404_NOT_FOUND)
+
+    db.commit()
+    invalidate_stock_detail_cache(symbol)
+    # A new stock changes the population every percentile-based sub-score is
+    # measured against, so the cached universe must not survive this.
+    invalidate_scored_universe_cache()
+
+    return IngestResponse(**report)
+
+
+@router.post("/catalogue/refresh", response_model=CatalogueLoadResponse)
+def refresh_catalogue(db: Session = Depends(get_db)) -> CatalogueLoadResponse:
+    """Reload the NSE equity list. Cheap (one CSV) and the only way renamed or
+    newly-listed tickers become searchable.
+    """
+    try:
+        report = load_catalogue(db)
+    except CatalogueError as exc:
+        raise AppError(str(exc), status_code=status.HTTP_502_BAD_GATEWAY)
+    db.commit()
+    return CatalogueLoadResponse(**report)
+
+
 def _get_stock_or_404(db: Session, symbol: str) -> Stock:
     stock = db.query(Stock).filter(Stock.symbol == symbol.upper()).first()
     if stock is None:
+        # Distinguish "not a real ticker" from "real ticker, no data yet" —
+        # the second is actionable by the client, the first is a typo.
+        if in_catalogue(db, symbol) is not None:
+            raise AppError(
+                f"'{symbol.upper()}' is listed on NSE but has not been ingested yet. "
+                f"POST /stocks/{symbol.upper()}/ingest to pull its history and analyse it.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
         raise AppError(f"Stock '{symbol}' not found", status_code=status.HTTP_404_NOT_FOUND)
     return stock
 

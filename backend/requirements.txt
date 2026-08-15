@@ -9,6 +9,9 @@ email-validator==2.2.0
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 yfinance==1.6.0
+# Already present transitively via yfinance; pinned explicitly because
+# services/catalogue.py imports it directly to fetch NSE's equity list.
+requests==2.34.2
 pandas==2.2.3
 numpy==2.2.1
 scikit-learn==1.6.0

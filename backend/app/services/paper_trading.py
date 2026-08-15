@@ -1,6 +1,15 @@
 """Paper trading: virtual buy/sell against real latest close prices, same
 transaction cost model as backtesting. Long-only, one open position per
 stock per account (no pyramiding) to keep P&L per trade unambiguous.
+
+P&L IDENTITY: `equity == virtual_capital + realized_pnl + unrealized_pnl`
+holds exactly, at every point. That requires every P&L figure to be measured
+against `trade.cost_basis` — the cash actually debited to open the position —
+rather than against `trade.price * quantity`. `price` is a per-share figure
+rounded to the paisa, so multiplying it back out drifts from the ledger by up
+to half a paisa per share per leg, in one systematic direction, accumulating
+across trades. Cash is rounded exactly once per leg (at `cost_basis` and at
+`proceeds`) and everything downstream reads those rounded figures.
 """
 
 from dataclasses import dataclass
@@ -72,10 +81,13 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
 
     fill_price = close
     cost = _half_cost(fill_price, quantity)
-    total_cash_out = fill_price * quantity + cost
-    if total_cash_out > float(account.cash):
+    # Rounded once, here. This single figure is both what leaves the cash
+    # balance and what all later P&L on this position is measured against.
+    cost_basis = round(fill_price * quantity + cost, 2)
+    if cost_basis > float(account.cash):
         raise PaperTradingError("Insufficient cash for this trade")
 
+    # Reported per-share entry: display/reference only, never a P&L input.
     effective_entry = fill_price + cost / quantity
 
     trade = PaperTrade(
@@ -84,11 +96,12 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
         side="buy",
         quantity=quantity,
         price=round(effective_entry, 2),
+        cost_basis=cost_basis,
         status="open",
     )
     db.add(trade)
 
-    account.cash = round(float(account.cash) - total_cash_out, 2)
+    account.cash = round(float(account.cash) - cost_basis, 2)
     # Flush before ratcheting: the peak-equity query below reads open
     # positions straight from the DB (autoflush is off on this session), so
     # the just-added trade must be persisted first or it won't be counted.
@@ -119,9 +132,12 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
 
     fill_price = close
     cost = _half_cost(fill_price, trade.quantity)
-    proceeds = fill_price * trade.quantity - cost
+    # Rounded once, mirroring cost_basis on the buy leg.
+    proceeds = round(fill_price * trade.quantity - cost, 2)
     effective_exit = fill_price - cost / trade.quantity
-    pnl = (effective_exit - float(trade.price)) * trade.quantity
+    # Difference of the two actual cash movements, so realized P&L ties out to
+    # the ledger exactly rather than to the rounded per-share prices.
+    pnl = proceeds - float(trade.cost_basis)
 
     trade.exit_price = round(effective_exit, 2)
     trade.exit_at = datetime.now(timezone.utc)
@@ -192,10 +208,12 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
         unrealized_pnl = None
         unrealized_pnl_pct = None
         if close is not None:
-            entry = float(t.price)
-            unrealized_pnl = round((close - entry) * t.quantity, 2)
-            unrealized_pnl_pct = round((close - entry) / entry * 100, 2)
-            market_value += close * t.quantity
+            basis = float(t.cost_basis)
+            position_value = close * t.quantity
+            # Against cash paid, same basis as realized P&L on the sell leg.
+            unrealized_pnl = round(position_value - basis, 2)
+            unrealized_pnl_pct = round((position_value - basis) / basis * 100, 2)
+            market_value += position_value
             unrealized_pnl_total += unrealized_pnl
         holdings.append(
             HoldingView(

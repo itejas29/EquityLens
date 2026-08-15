@@ -4,6 +4,8 @@ import time
 import pandas as pd
 import yfinance as yf
 
+from app.core.ingestion_status import IngestionStatus
+
 logger = logging.getLogger(__name__)
 
 NSE_SUFFIX = ".NS"
@@ -40,7 +42,15 @@ def _to_nse_symbol(symbol: str) -> str:
     return f"{symbol}{NSE_SUFFIX}"
 
 
+class MarketDataError(Exception):
+    def __init__(self, message: str, status: IngestionStatus):
+        super().__init__(message)
+        self.status = status
+
 def _with_retry(fn, *args, **kwargs):
+    import requests
+    from yfinance.exceptions import YFRateLimitError
+    
     last_exc: Exception | None = None
     for attempt in range(RETRY_ATTEMPTS):
         try:
@@ -48,10 +58,53 @@ def _with_retry(fn, *args, **kwargs):
         except Exception as exc:  # yfinance raises a mix of requests/JSON errors
             last_exc = exc
             if attempt < RETRY_ATTEMPTS - 1:
-                delay = RETRY_BASE_DELAY_SECONDS * (2**attempt)
+                # Add extra delay for rate limits
+                is_rate_limit = isinstance(exc, YFRateLimitError) or "429" in str(exc)
+                multiplier = 4 if is_rate_limit else 1
+                delay = RETRY_BASE_DELAY_SECONDS * (2**attempt) * multiplier
                 logger.warning("yfinance call failed (attempt %d/%d): %s. Retrying in %.1fs", attempt + 1, RETRY_ATTEMPTS, exc, delay)
                 time.sleep(delay)
+    
+    # Classify the final failure
+    from app.core.ingestion_status import IngestionStatus
+    status = IngestionStatus.PROVIDER_ERROR
+    
+    if isinstance(last_exc, YFRateLimitError) or "429" in str(last_exc):
+        status = IngestionStatus.RATE_LIMITED
+    elif isinstance(last_exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+        status = IngestionStatus.NETWORK_ERROR
+        
+    raise MarketDataError(str(last_exc), status) from last_exc
+
+
+def download_batch_with_retry(tickers: list[str], **kwargs) -> pd.DataFrame | dict:
+    """Wrapper around yf.download with the same robust backoff policy."""
+    import requests
+    from yfinance.exceptions import YFRateLimitError
+    
+    last_exc: Exception | None = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            # yf.download intercepts Exceptions inside and returns empty DFs sometimes, 
+            # but for 429s or ConnectionErrors it often raises.
+            # We explicitly set progress=False, threads=True by default.
+            kwargs.setdefault("progress", False)
+            kwargs.setdefault("threads", True)
+            
+            result = yf.download(tickers=tickers, **kwargs)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            if attempt < RETRY_ATTEMPTS - 1:
+                is_rate_limit = isinstance(exc, YFRateLimitError) or "429" in str(exc)
+                multiplier = 4 if is_rate_limit else 1
+                delay = RETRY_BASE_DELAY_SECONDS * (2**attempt) * multiplier
+                logger.warning("yfinance batch download failed (attempt %d/%d): %s. Retrying in %.1fs", attempt + 1, RETRY_ATTEMPTS, exc, delay)
+                time.sleep(delay)
+    
+    # Let the caller handle the final exception, or just raise it.
     raise last_exc
+
 
 
 def fetch_price_history(symbol: str, period: str = "2y") -> pd.DataFrame:

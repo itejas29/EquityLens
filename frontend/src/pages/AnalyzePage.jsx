@@ -2,17 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import ErrorMessage from "../components/ErrorMessage";
-
-const SECTORS = [
-  "Financial Services",
-  "Technology",
-  "Healthcare",
-  "Consumer Cyclical",
-  "Consumer Defensive",
-  "Energy",
-  "Basic Materials",
-  "Utilities",
-];
+import PageHeader from "../components/PageHeader";
+import { SECTORS } from "../lib/constants";
 
 export default function AnalyzePage() {
   const navigate = useNavigate();
@@ -51,10 +42,12 @@ export default function AnalyzePage() {
 
   return (
     <div>
-      <h2>Analyze</h2>
-      <p className="muted">Build a portfolio from the current universe based on your capital and risk appetite.</p>
+      <PageHeader
+        title="Analyze"
+        subtitle="Size a paper portfolio from the current scored universe using your capital, risk appetite and sector preferences."
+      />
       <ErrorMessage message={error} />
-      <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 600 }}>
+      <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 620 }}>
         <div className="form-grid">
           <div className="field">
             <label htmlFor="capital">Capital (INR)</label>
@@ -94,16 +87,19 @@ export default function AnalyzePage() {
         </div>
         <div className="field">
           <label>Sector filter (optional)</label>
-          <div>
-            {SECTORS.map((sector) => (
-              <label key={sector} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 12, fontWeight: 400 }}>
-                <input type="checkbox" checked={sectors.includes(sector)} onChange={() => toggleSector(sector)} />
-                <span className="muted">{sector}</span>
-              </label>
-            ))}
+          <div className="chip-group">
+            {SECTORS.map((sector) => {
+              const checked = sectors.includes(sector);
+              return (
+                <label key={sector} className={`chip${checked ? " checked" : ""}`}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleSector(sector)} />
+                  {sector}
+                </label>
+              );
+            })}
           </div>
         </div>
-        <button className="btn btn-primary" type="submit" disabled={submitting}>
+        <button className="btn btn-primary" type="submit" disabled={submitting} style={{ marginTop: 4 }}>
           {submitting ? "Analyzing..." : "Analyze portfolio"}
         </button>
       </form>

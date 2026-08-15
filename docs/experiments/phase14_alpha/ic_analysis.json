@@ -1,0 +1,70 @@
+{
+  "dates": 98,
+  "observations": 38086,
+  "engines": {
+    "momentum": {
+      "h5": {
+        "mean_ic": 0.0085,
+        "ic_t_stat": 0.55,
+        "dates": 98,
+        "top_decile_rel_pct": 0.749,
+        "bottom_decile_rel_pct": 0.637,
+        "spread_pct": 0.112,
+        "decile_monotonicity": 0.011,
+        "above_median_hit_rate_pct": 49.68
+      },
+      "h10": {
+        "mean_ic": 0.0383,
+        "ic_t_stat": 2.56,
+        "dates": 98,
+        "top_decile_rel_pct": 1.242,
+        "bottom_decile_rel_pct": 0.411,
+        "spread_pct": 0.831,
+        "decile_monotonicity": 0.852,
+        "above_median_hit_rate_pct": 49.88
+      },
+      "h20": {
+        "mean_ic": 0.0447,
+        "ic_t_stat": 2.97,
+        "dates": 98,
+        "top_decile_rel_pct": 1.875,
+        "bottom_decile_rel_pct": 0.215,
+        "spread_pct": 1.66,
+        "decile_monotonicity": 0.947,
+        "above_median_hit_rate_pct": 49.95
+      }
+    },
+    "composite": {
+      "h5": {
+        "mean_ic": -0.011,
+        "ic_t_stat": -0.64,
+        "dates": 98,
+        "top_decile_rel_pct": 0.161,
+        "bottom_decile_rel_pct": 1.026,
+        "spread_pct": -0.864,
+        "decile_monotonicity": -0.918,
+        "above_median_hit_rate_pct": 49.05
+      },
+      "h10": {
+        "mean_ic": 0.0233,
+        "ic_t_stat": 1.32,
+        "dates": 98,
+        "top_decile_rel_pct": 0.409,
+        "bottom_decile_rel_pct": 0.985,
+        "spread_pct": -0.576,
+        "decile_monotonicity": -0.818,
+        "above_median_hit_rate_pct": 49.68
+      },
+      "h20": {
+        "mean_ic": 0.0405,
+        "ic_t_stat": 2.2,
+        "dates": 98,
+        "top_decile_rel_pct": 0.62,
+        "bottom_decile_rel_pct": 0.933,
+        "spread_pct": -0.313,
+        "decile_monotonicity": -0.052,
+        "above_median_hit_rate_pct": 49.9
+      }
+    }
+  }
+}
