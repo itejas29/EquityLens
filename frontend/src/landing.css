@@ -429,6 +429,52 @@ body.menu-open { overflow: hidden; }
   outline-offset: 3px;
 }
 
+/* --- Contrast fix: these fields were rendering white-on-white -------------
+   index.css carries a global `input[type="email"|"password"|"text"] { ... }`
+   rule whose attribute selector (0,1,1) outranks the plain `.form__input`
+   class (0,1,0). In the light app theme that rule resolves
+   `background: var(--bg-elevated)` to #ffffff, while this file sets
+   `--text: #ffffff` for the dark hero — so the box and the text were both
+   white and the typed value was invisible.
+
+   Scoped as element+class so it outranks the global rule on specificity
+   alone, without !important. Background is an explicit dark translucent
+   panel rather than `transparent`, so the field stays legible regardless of
+   what the global theme does next. */
+input.form__input,
+input.form__input[type="text"],
+input.form__input[type="email"],
+input.form__input[type="password"] {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  padding: 14px 16px;
+  color: #ffffff;
+  caret-color: #ffffff;
+  -webkit-text-fill-color: #ffffff; /* Safari/Chrome honour this over `color` */
+}
+
+input.form__input:focus,
+input.form__input[type="text"]:focus,
+input.form__input[type="email"]:focus,
+input.form__input[type="password"]:focus {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+/* Chrome paints autofilled fields with its own near-white background and
+   ignores `background`. The huge inset shadow is the standard way to repaint
+   it, and -webkit-text-fill-color is the only thing that recolours the text. */
+input.form__input:-webkit-autofill,
+input.form__input:-webkit-autofill:hover,
+input.form__input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff;
+  -webkit-box-shadow: 0 0 0 1000px #14161c inset;
+  box-shadow: 0 0 0 1000px #14161c inset;
+  caret-color: #ffffff;
+  transition: background-color 9999s ease-in-out 0s; /* defeat the autofill flash */
+}
+
 /* Buttons */
 .btn {
   display: block;
@@ -719,6 +765,10 @@ body.menu-open { overflow: hidden; }
   cursor: pointer;
 }
 .form__select option {
+  /* Text colour pinned explicitly: the background here is near-black, and
+     leaving the colour to inherit risks the same white-on-white failure the
+     text inputs had if a light theme ever wins the cascade. */
+  color: #ffffff;
   background: #0a0a0a;
   color: var(--text);
 }

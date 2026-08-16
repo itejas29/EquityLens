@@ -5,6 +5,13 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
+import PaperTradingPage from "./pages/PaperTradingPage";
+import StocksPage from "./pages/StocksPage";
+import SectorsPage from "./pages/SectorsPage";
+import IntradayPage from "./pages/IntradayPage";
+import NewsPage from "./pages/NewsPage";
+import DiscoverPage from "./pages/DiscoverPage";
+import HomePage from "./pages/HomePage";
 import TodayPage from "./pages/TodayPage";
 import AnalyzePage from "./pages/AnalyzePage";
 import RecommendationsPage from "./pages/RecommendationsPage";
@@ -25,6 +32,13 @@ export default function App() {
 
           {/* App shell — sidebar + protected routes */}
           <Route element={<Layout />}>
+            <Route path="/home" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+            <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
+            <Route path="/news" element={<ProtectedRoute><NewsPage /></ProtectedRoute>} />
+            <Route path="/intraday" element={<ProtectedRoute><IntradayPage /></ProtectedRoute>} />
+            <Route path="/stocks" element={<ProtectedRoute><StocksPage /></ProtectedRoute>} />
+            <Route path="/sectors" element={<ProtectedRoute><SectorsPage /></ProtectedRoute>} />
+            <Route path="/paper" element={<ProtectedRoute><PaperTradingPage /></ProtectedRoute>} />
             <Route
               path="/today"
               element={

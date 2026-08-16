@@ -20,6 +20,7 @@ from datetime import date as date_type
 from datetime import timedelta
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.core.daily_signals_config import (
     HIGH_BETA,
@@ -434,3 +435,41 @@ def trigger_state(latest_price: float | None, entry_low: float, entry_high: floa
 
 def stale_reference_cutoff(as_of: date_type) -> date_type:
     return as_of - timedelta(days=MAX_REFERENCE_AGE_DAYS)
+
+
+def get_momentum_leaders(db: Session) -> tuple[date_type | None, int, list[dict]]:
+    market_through = db.query(func.max(PriceHistory.date)).scalar()
+    if not market_through:
+        return None, 0, []
+
+    stocks = {s.id: s for s in db.query(Stock).filter(Stock.is_active == True).all()}  # noqa: E712
+    momentum = _momentum_scores(db, list(stocks.keys()), market_through)
+    
+    sorted_momentum = sorted(momentum.items(), key=lambda kv: kv[1], reverse=True)
+    
+    prices = {
+        r.stock_id: float(r.close) 
+        for r in db.query(PriceHistory.stock_id, PriceHistory.close)
+        .filter(PriceHistory.date == market_through, PriceHistory.close.isnot(None)).all()
+    }
+    from app.core.cache import get_live_prices
+    live = get_live_prices() or {}
+    
+    leaders = []
+    for rank, (stock_id, mom_score) in enumerate(sorted_momentum, start=1):
+        stock = stocks.get(stock_id)
+        if not stock:
+            continue
+        quote = live.get(stock.symbol)
+        price = quote["price"] if quote else prices.get(stock_id)
+        
+        leaders.append({
+            "symbol": stock.symbol,
+            "company_name": stock.company_name,
+            "sector": stock.sector,
+            "price": price,
+            "momentum_percentile": round(mom_score, 2),
+            "rank": rank
+        })
+        
+    return market_through, len(stocks), leaders

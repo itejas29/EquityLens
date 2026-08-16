@@ -44,7 +44,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/today");
+      navigate("/home");
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.services.market import get_market_overview, get_price_feed, get_sparkline
+from app.services.market_ext import get_discover_sections, get_sectors
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -72,3 +73,11 @@ def market_overview(
 @router.get("/sparkline/{symbol}", response_model=SparklineResponse)
 def sparkline(symbol: str, days: int = Query(30, ge=5, le=120), db: Session = Depends(get_db)) -> SparklineResponse:
     return SparklineResponse(symbol=symbol.upper(), closes=get_sparkline(db, symbol, days))
+
+@router.get("/sectors")
+def market_sectors(db: Session = Depends(get_db)):
+    return get_sectors(db)
+
+@router.get("/discover")
+def market_discover(limit: int = Query(20, ge=1, le=50), db: Session = Depends(get_db)):
+    return get_discover_sections(db, limit)

@@ -51,7 +51,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await register(name, email, password, riskProfile);
-      navigate("/today");
+      navigate("/home");
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {

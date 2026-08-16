@@ -62,6 +62,12 @@ def list_stocks(
     return StockListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/screener")
+def get_screener(db: Session = Depends(get_db)):
+    from app.services.stocks_screener import get_screener_data
+    return get_screener_data(db)
+
+
 # NOTE: /search and /catalogue must be declared before /{symbol}, or FastAPI
 # matches them as a symbol named "search" and returns a 404 instead.
 @router.get("/search", response_model=SearchResponse)

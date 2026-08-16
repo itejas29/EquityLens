@@ -361,6 +361,22 @@ def _run_incremental_update(as_of: date_type) -> int:
 
         result = incremental_price_update(db, today=as_of)
 
+        try:
+            from app.services.forward_testing import evaluate_signal_outcomes, record_paper_snapshot
+            from app.models.paper_trading import PaperAccount
+            
+            evaluate_signal_outcomes(db, as_of)
+            accounts = db.query(PaperAccount).all()
+            for account in accounts:
+                try:
+                    record_paper_snapshot(db, account.id, as_of)
+                except Exception as e:
+                    logger.error("Failed to record snapshot for account %s: %s", account.id, e)
+            db.commit()
+        except Exception as e:
+            logger.error("Failed to evaluate forward testing outcomes: %s", e)
+            db.rollback()
+
         # Update the PipelineRun with results
         pipeline_run.finished_at = datetime.now(IST)
         pipeline_run.status = result.status

@@ -49,3 +49,39 @@ class DailySignal(Base):
     rationale: Mapped[list] = mapped_column(JSON, nullable=False)
 
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SignalOutcome(Base):
+    """Outcome measurements of a daily signal over 1D, 5D, 10D, and 20D horizons."""
+
+    __tablename__ = "signal_outcomes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    signal_id: Mapped[int] = mapped_column(ForeignKey("daily_signals.id", ondelete="CASCADE"), unique=True, nullable=False)
+    
+    # What it was measured against
+    evaluated_at: Mapped[date_type] = mapped_column(Date, nullable=False)
+    current_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    
+    # Returns (measured from the signal's reference_close)
+    return_1d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    return_5d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    return_10d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    return_20d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    
+    # Excursions measured from reference_close
+    max_favorable_excursion: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    max_adverse_excursion: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    
+    # Flags
+    target_hit: Mapped[bool] = mapped_column(nullable=False, default=False)
+    stop_hit: Mapped[bool] = mapped_column(nullable=False, default=False)
+    
+    # NIFTY benchmark returns over the exact same timeframes
+    nifty_return_1d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    nifty_return_5d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    nifty_return_10d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    nifty_return_20d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

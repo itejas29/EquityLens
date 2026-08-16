@@ -1,0 +1,556 @@
+.el /* ============================================================================
+   EquityLens design system — light, .el dense, .el professional.
+
+   Deliberately narrow: one accent, .el two market colours, .el four text weights, .el one
+   border. The previous UI failed because every section invented its own card, .el pill and gradient, .el so nothing had hierarchy. Here, .el emphasis comes from
+   type scale and whitespace; colour is reserved for market direction.
+
+   Contrast: every text token below clears 4.5:1 on --surface. --text-3 is the
+   lightest permitted and is only for labels at >=11px semibold, .el never body.
+   ========================================================================= */
+
+:root {
+  /* Surfaces — a very light neutral ground so white tables read as raised */
+  --page: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f2f4f7;
+  --surface-hover: #f7f9fc;
+
+  /* One border weight everywhere. Two would imply a hierarchy we don't have. */
+  --line: #e3e6ec;
+  --line-strong: #cdd2dc;
+
+  /* Text — 4 steps, all AA on white */
+  --text-1: #10131a;   /* headings, prices           16.9:1 */
+  --text-2: #3d4453;   /* body                        9.4:1 */
+  --text-3: #646c7d;   /* labels, secondary           5.6:1 */
+  --text-inv: #ffffff;
+
+  /* One accent. Used for interactive affordance only, never for data. */
+  --accent: #2b5cff;
+  --accent-hover: #1e49d6;
+  --accent-soft: #eef2ff;
+
+  /* Market direction. Restrained — these carry meaning, so they must not
+     compete with decoration elsewhere. */
+  --up: #0f9d58;
+  --up-soft: #e8f5ee;
+  --down: #d93025;
+  --down-soft: #fdecea;
+  --flat: #646c7d;
+
+  --warn: #b26a00;
+  --warn-soft: #fff6e5;
+
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgba(16, 19, 26, 0.06);
+  --shadow-pop: 0 8px 28px rgba(16, 19, 26, 0.14);
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-num: "Inter", -apple-system, sans-serif;
+
+  --nav-h: 56px;
+  --sub-h: 44px;
+}
+
+.el /* ---------------------------------------------------------------- reset -- */
+.el * { box-sizing: border-box; }
+
+.el {
+  background: var(--page);
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.el h1, .el h2, .el h3, .el h4 {
+  margin: 0;
+  color: var(--text-1);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.el h1 { font-size: 22px; }
+.el h2 { font-size: 17px; }
+.el h3 { font-size: 15px; }
+
+.el a { color: inherit; text-decoration: none; }
+
+.el /* Tabular figures everywhere numbers are compared down a column. */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.el .up   { color: var(--up); }
+.el .down { color: var(--down); }
+.el .flat { color: var(--flat); }
+
+.el :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.el /* ------------------------------------------------------------------ nav -- */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.el .nav-in {
+  max-width: 1280px;
+  margin: 0 auto;
+  height: var(--nav-h);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.el .nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-1);
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+.el .nav-logo-mark {
+  width: 24px; height: 24px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  display: grid; place-items: center;
+  color: #fff;
+}
+
+.el .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
+
+.el .nav-link {
+  position: relative;
+  padding: 0 12px;
+  height: var(--nav-h);
+  display: inline-flex;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+.el .nav-link:hover { color: var(--text-1); }
+.el /* Active state is a bottom rule, .el not a filled pill — pills at nav level made
+   the old UI read as a toolbar of buttons rather than a hierarchy. */
+.nav-link.active { color: var(--text-1); font-weight: 600; }
+.el .nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 12px; right: 12px; bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.el .nav-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.el .avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  font-size: 12px; font-weight: 700;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+
+.el /* --------------------------------------------------------------- layout -- */
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 20px 72px;
+}
+
+.el .section { margin-bottom: 28px; }
+
+.el .section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.el .section-sub { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
+.el .section-link { font-size: 13px; font-weight: 600; color: var(--accent); }
+.el .section-link:hover { color: var(--accent-hover); }
+
+.el .panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.el /* ------------------------------------------------------- market overview -- */
+.mkt {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.el .mkt-cell { background: var(--surface); padding: 14px 16px; }
+.el .mkt-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.el .mkt-value { font-size: 19px; font-weight: 650; color: var(--text-1); margin-top: 5px; }
+.el .mkt-meta { font-size: 12px; margin-top: 3px; }
+
+.el .breadth-bar {
+  display: flex; height: 5px; border-radius: 3px;
+  overflow: hidden; background: var(--surface-2); margin-top: 9px;
+}
+.el .breadth-up { background: var(--up); }
+.el .breadth-down { background: var(--down); }
+
+.el .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.el .dot-live { background: var(--up); box-shadow: 0 0 0 3px var(--up-soft); }
+.el .dot-closed { background: var(--flat); box-shadow: 0 0 0 3px var(--surface-2); }
+
+.el /* ---------------------------------------------------------------- table -- */
+.tbl-wrap { width: 100%; overflow-x: auto; }
+
+.el .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+
+.el .tbl thead th {
+  position: sticky; top: 0;
+  background: var(--surface-2);
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.el .tbl thead th.r, .el .tbl td.r { text-align: right; }
+
+.el .tbl tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+.el .tbl tbody tr:last-child td { border-bottom: 0; }
+.el .tbl tbody tr:hover { background: var(--surface-hover); }
+
+.el .th-sort { cursor: pointer; user-select: none; }
+.el .th-sort:hover { color: var(--text-1); }
+.el .th-sort[aria-sort]:not([aria-sort="none"]) { color: var(--text-1); }
+
+.el .rank-cell {
+  width: 22px; height: 22px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 11.5px; font-weight: 700;
+  display: grid; place-items: center;
+}
+
+.el .sym { font-weight: 650; color: var(--text-1); font-size: 13.5px; }
+.el .sym:hover { color: var(--accent); }
+.el .co { font-size: 11.5px; color: var(--text-3); margin-top: 1px;
+      max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.el .price { font-weight: 600; color: var(--text-1); }
+
+.el /* -------------------------------------------------------------- badges --- */
+/* Direction is never colour-only: badges carry a glyph or word too. */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.el .badge-buy   { background: var(--up-soft);   color: var(--up);   border-color: rgba(15,157,88,0.22); }
+.el .badge-wait  { background: var(--warn-soft); color: var(--warn); border-color: rgba(178,106,0,0.22); }
+.el .badge-avoid { background: var(--down-soft); color: var(--down); border-color: rgba(217,48,37,0.22); }
+.el .badge-mute  { background: var(--surface-2); color: var(--text-3); border-color: var(--line); }
+
+.el .score {
+  display: inline-flex; align-items: baseline; gap: 1px;
+  font-weight: 700; font-size: 13.5px; color: var(--text-1);
+}
+.el .score-max { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+
+.el /* Score strength shown as a bar as well as a number — redundant encoding so
+   the ranking survives greyscale printing and colour-blind readers. */
+.score-bar { width: 46px; height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: 4px; }
+.el .score-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+
+.el /* --------------------------------------------------------------- chips --- */
+.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.el .chips::-webkit-scrollbar { display: none; }
+
+.el .chip {
+  padding: 6px 13px;
+  border-radius: 100px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12.5px; font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.el .chip:hover { border-color: var(--text-3); color: var(--text-1); }
+.el .chip.on { background: var(--text-1); border-color: var(--text-1); color: var(--text-inv); }
+
+.el .chip-count { opacity: 0.62; margin-left: 4px; font-weight: 500; }
+
+.el /* ------------------------------------------------------------- buttons --- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text-1);
+  font-size: 13px; font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.el .btn:hover { background: var(--surface-2); border-color: var(--text-3); }
+.el .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.el .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.el .btn-sm { padding: 5px 10px; font-size: 12px; }
+.el .btn-icon { padding: 7px; }
+
+.el /* ---------------------------------------------------------- provenance --- */
+/* Subtle by default; amber only when the data is genuinely stale, .el so the
+   warning still means something when it appears. */
+.prov {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px 20px;
+  padding: 9px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.el .prov--stale { background: var(--warn-soft); border-color: rgba(178,106,0,0.3); }
+.el .prov-item { display: flex; align-items: center; gap: 6px; }
+.el .prov-k { color: var(--text-3); }
+.el .prov-v { color: var(--text-1); font-weight: 600; }
+.el .prov-note { flex-basis: 100%; color: var(--warn); font-size: 12px; }
+
+.el /* ---------------------------------------------------------- state views -- */
+.state {
+  display: grid; place-items: center; text-align: center;
+  padding: 52px 24px;
+  color: var(--text-3);
+}
+.el .state-icon { color: var(--line-strong); margin-bottom: 12px; }
+.el .state-title { font-size: 15px; font-weight: 600; color: var(--text-1); margin-bottom: 5px; }
+.el .state-body { font-size: 13px; max-width: 380px; line-height: 1.6; }
+.el .state-action { margin-top: 16px; }
+
+.el .skel { background: var(--surface-2); border-radius: var(--r-sm); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } }
+
+.el /* ---------------------------------------------------------------- misc --- */
+.spark { display: block; }
+
+.el .search-wrap { position: relative; flex: 0 1 320px; }
+.el .search-in {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.el .search-in::placeholder { color: var(--text-3); }
+.el .search-in:focus { background: var(--surface); border-color: var(--accent); }
+.el .search-ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+
+.el .search-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden; z-index: 200;
+  max-height: 340px; overflow-y: auto;
+}
+.el .search-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px;
+  background: none; border: 0; border-bottom: 1px solid var(--line);
+  text-align: left; cursor: pointer; font-family: inherit;
+}
+.el .search-row:last-child { border-bottom: 0; }
+.el .search-row:hover:not(:disabled) { background: var(--surface-hover); }
+.el .search-row:disabled { opacity: 0.55; cursor: default; }
+
+.el /* ------------------------------------------------------------ responsive - */
+/* Mobile keeps symbol / price / change / score / signal — the five fields you
+   actually scan — and drops the rest rather than shrinking everything. */
+.cards { display: none; }
+
+@media (max-width: 860px) {
+  .el .nav-links { display: none; }
+  .el .page { padding: 14px 12px 76px; }
+  .el .tbl-wrap { display: none; }
+  .el .cards { display: flex; flex-direction: column; }
+
+  .el .card-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 3px 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .el .card-row:last-child { border-bottom: 0; }
+  .el .card-l2 { grid-column: 1; display: flex; align-items: center; gap: 8px; }
+  .el .card-r  { grid-row: 1 / span 2; grid-column: 2; text-align: right;
+             display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+
+  .el .mkt { grid-template-columns: repeat(2, 1fr); }
+
+  .el /* Bottom navigation replaces the top links on small screens. */
+  .botnav {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .el .botnav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 2px 7px;
+    font-size: 10.5px; font-weight: 550;
+    color: var(--text-3);
+    min-height: 48px;              /* touch target */
+  }
+  .el .botnav-item.active { color: var(--accent); }
+}
+
+@media (min-width: 861px) { .el .botnav { display: none; } }
+
+@media (max-width: 1080px) {
+  .el .col-hide-lg { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .el *, .el *::before, .el *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.el /* --- Width + multi-column ------------------------------------------------
+   The first pass capped content at 1280px with single-column sections, .el which
+   left large empty margins on a desktop monitor. Wider cap plus real grids. */
+.page { max-width: 1460px; }
+.el .nav-in { max-width: 1460px; }
+
+.el .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.el .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+
+@media (max-width: 1000px) {
+  .el .grid-2, .el .grid-3 { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   COLLISION NEUTRALISERS — the actual root cause of the narrow desktop layout.
+
+   index.css and landing.css were written before this design system and define
+   14 of the same class names. The worst was `.panel`, which landing.css sizes
+   as an auth form: `width: min(34vw, 620px); min-width: 380px`. Every table in
+   this design system sits in a `.panel`, so on a 1440px screen each one
+   collapsed to ~490px and hugged the left — the dead space on the right.
+
+   Scoping under `.el` raises specificity, but specificity only decides a
+   property that BOTH rules declare. `.el .panel` never set `width`, so the
+   legacy width still won. These blocks explicitly reclaim each colliding
+   property. They are declarations, not overrides of intent — the legacy rules
+   remain correct for the auth pages, which live outside `.el`.
+   ========================================================================= */
+
+.el .panel {
+  display: block;          /* landing.css: flex column */
+  width: auto;             /* landing.css: min(34vw, 620px)  <-- the bug */
+  min-width: 0;            /* landing.css: 380px */
+  align-items: stretch;
+  flex-direction: unset;
+}
+
+.el .btn {
+  display: inline-flex;    /* landing.css: block */
+  width: auto;             /* landing.css: 100% */
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.el .chip { display: inline-flex; width: auto; }
+
+.el .search-wrap { width: auto; }
+
+/* Tables must be free to use the full panel width. */
+.el .tbl { width: 100%; min-width: 0; }
+.el .tbl-wrap { width: 100%; }
+
+/* --- Dashboard grid system ------------------------------------------------
+   One reusable set of grids every page composes, rather than per-page widths.
+   Collapse to a single column below 1000px. */
+.el .g-2      { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.el .g-3      { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+/* Asymmetric split for "wide content + narrow sidebar" (e.g. holdings + order
+   ticket, sector table + regime panel). */
+.el .g-main   { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.el .g-cards  { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+
+@media (max-width: 1000px) {
+  .el .g-2, .el .g-3, .el .g-main { grid-template-columns: 1fr; }
+}
+
+/* Sector heatmap tiles */
+.el .heat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px 14px;
+}
+.el .heat-name { font-size: 13px; font-weight: 650; color: var(--text-1); }
+.el .heat-sub  { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.el .heat-val  { font-size: 17px; font-weight: 650; margin-top: 8px; }
+.el .heat.up-bg   { border-left: 3px solid var(--up); }
+.el .heat.down-bg { border-left: 3px solid var(--down); }
+.el .heat.flat-bg { border-left: 3px solid var(--line-strong); }

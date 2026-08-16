@@ -89,3 +89,54 @@ def paper_account(current_user: User = Depends(get_current_user), db: Session = 
         current_drawdown_pct=summary.current_drawdown_pct,
         holdings=holdings,
     )
+
+
+@router.get("/transactions", response_model=list[PaperTradeResponse])
+def paper_transactions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[PaperTradeResponse]:
+    from app.models.paper_trading import PaperAccount, PaperTrade
+    from app.models.stock import Stock
+    
+    account = db.query(PaperAccount).filter(PaperAccount.user_id == current_user.id).first()
+    if not account:
+        return []
+        
+    trades = (
+        db.query(PaperTrade, Stock.symbol)
+        .join(Stock, Stock.id == PaperTrade.stock_id)
+        .filter(PaperTrade.account_id == account.id)
+        .order_by(PaperTrade.executed_at.desc())
+        .limit(100)
+        .all()
+    )
+    
+    return [_trade_response(t, sym) for t, sym in trades]
+
+
+@router.get("/equity-curve")
+def paper_equity_curve(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.paper_trading import PaperAccount, PaperEquitySnapshot
+    
+    account = db.query(PaperAccount).filter(PaperAccount.user_id == current_user.id).first()
+    if not account:
+        return []
+        
+    snapshots = (
+        db.query(PaperEquitySnapshot)
+        .filter(PaperEquitySnapshot.account_id == account.id)
+        .order_by(PaperEquitySnapshot.date.asc())
+        .all()
+    )
+    
+    return [
+        {
+            "date": s.date,
+            "total_equity": float(s.total_equity),
+            "cash": float(s.cash),
+            "portfolio_value": float(s.portfolio_value),
+            "daily_return": float(s.daily_return) if s.daily_return else 0,
+            "cumulative_return": float(s.cumulative_return) if s.cumulative_return else 0,
+            "nifty_return": float(s.nifty_return) if s.nifty_return else 0,
+            "drawdown": float(s.drawdown)
+        }
+        for s in snapshots
+    ]

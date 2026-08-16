@@ -121,6 +121,7 @@ export default function StockDetailPage() {
   const { symbol } = useParams();
   const [stock, setStock] = useState(null);
   const [indicator, setIndicator] = useState(null);
+  const [signal, setSignal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -132,7 +133,8 @@ export default function StockDetailPage() {
     Promise.allSettled([
       apiClient.get(`/stocks/${symbol}`),
       apiClient.get(`/stocks/${symbol}/indicators`),
-    ]).then(([detail, indicators]) => {
+      apiClient.get(`/daily-signals/${symbol}`)
+    ]).then(([detail, indicators, sig]) => {
       if (cancelled) return;
       if (detail.status === "fulfilled") setStock(detail.value.data);
       else setError(apiErrorMessage(detail.reason));
@@ -141,6 +143,11 @@ export default function StockDetailPage() {
         const rows = indicators.value.data;
         setIndicator(Array.isArray(rows) && rows.length ? rows[rows.length - 1] : null);
       }
+      
+      if (sig.status === "fulfilled") {
+        setSignal(sig.value.data);
+      }
+      
       setLoading(false);
     });
 
@@ -226,6 +233,73 @@ export default function StockDetailPage() {
               <strong style={{ marginLeft: 8, color: "var(--text)" }}>{bears}</strong>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 40 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 500, color: "var(--text)", margin: "0 0 4px" }}>V1 Signal Outcome</h2>
+        <div className="groww-table-wrap" style={{ padding: "20px 24px" }}>
+          {!signal ? (
+            <p className="muted" style={{ margin: 0 }}>Not currently a V1 signal.</p>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
+                Signal generated on {signal.signal_date || "—"}. 
+                <br/>
+                Entry zone: {inr(signal.entry_low)} - {inr(signal.entry_high)} (Reference: previous session close) | Target: {inr(signal.target_price)} | Stop: {inr(signal.stop_loss_price)}
+              </div>
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginTop: "16px" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>1D Return</div>
+                  <div style={{ fontWeight: 600, color: signal.return_1d_pct > 0 ? "var(--emerald)" : signal.return_1d_pct < 0 ? "var(--rose)" : "inherit" }}>
+                    {signal.return_1d_pct != null ? `${signal.return_1d_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>5D Return</div>
+                  <div style={{ fontWeight: 600, color: signal.return_5d_pct > 0 ? "var(--emerald)" : signal.return_5d_pct < 0 ? "var(--rose)" : "inherit" }}>
+                    {signal.return_5d_pct != null ? `${signal.return_5d_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>10D Return</div>
+                  <div style={{ fontWeight: 600, color: signal.return_10d_pct > 0 ? "var(--emerald)" : signal.return_10d_pct < 0 ? "var(--rose)" : "inherit" }}>
+                    {signal.return_10d_pct != null ? `${signal.return_10d_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>20D Return</div>
+                  <div style={{ fontWeight: 600, color: signal.return_20d_pct > 0 ? "var(--emerald)" : signal.return_20d_pct < 0 ? "var(--rose)" : "inherit" }}>
+                    {signal.return_20d_pct != null ? `${signal.return_20d_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginTop: "16px" }}>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Max Favorable Excursion</div>
+                  <div style={{ fontWeight: 600, color: "var(--emerald)" }}>
+                    {signal.mfe_pct != null ? `${signal.mfe_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Max Adverse Excursion</div>
+                  <div style={{ fontWeight: 600, color: "var(--rose)" }}>
+                    {signal.mae_pct != null ? `${signal.mae_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>vs NIFTY (Excess)</div>
+                  <div style={{ fontWeight: 600, color: signal.excess_return_pct > 0 ? "var(--emerald)" : signal.excess_return_pct < 0 ? "var(--rose)" : "inherit" }}>
+                    {signal.excess_return_pct != null ? `${signal.excess_return_pct.toFixed(2)}%` : "—"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: "16px", display: "flex", gap: "12px" }}>
+                 {signal.target_hit && <span style={{ background: "var(--emerald)", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: "bold" }}>TARGET HIT</span>}
+                 {signal.stop_hit && <span style={{ background: "var(--rose)", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: "bold" }}>STOP HIT</span>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
