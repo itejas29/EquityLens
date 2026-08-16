@@ -439,6 +439,22 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
         )
 
     stocks = db.query(Stock).filter(Stock.is_active == True).order_by(Stock.symbol).all()  # noqa: E712
+
+    # Universe subset (Phase 16 §6): keep the top N by 20-day traded value,
+    # measured point-in-time at the backtest start using the same liquidity
+    # definition the universe builder uses. Applied before anything else so
+    # every downstream stage sees the reduced set.
+    top_n = getattr(config.params, "universe_top_n", None) if config.params else None
+    if top_n:
+        ranked = []
+        for st in stocks:
+            df = _load_ohlcv_df(db, st.id)
+            df = df[df["date"] <= config.start_date].tail(20)
+            tv = (df["close"].astype(float) * df["volume"].astype(float)).dropna()
+            if not tv.empty:
+                ranked.append((float(tv.mean()), st))
+        ranked.sort(key=lambda r: r[0], reverse=True)
+        stocks = [st for _, st in ranked[:top_n]]
     stocks_by_id = {s.id: s for s in stocks}
     raw_frames = _load_all_price_frames(db, stocks)
     indexed_frames = {sid: df.set_index("date") for sid, df in raw_frames.items()}

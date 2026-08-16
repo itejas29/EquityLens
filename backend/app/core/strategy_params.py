@@ -110,6 +110,16 @@ class StrategyParams:
     #                    the slate so total intended exposure matches equal_weight
     sizing_method: str = "atr_risk"
 
+    # --- Robustness knobs (Phase 16) ---
+    # Momentum lookback and the skipped recent window. Defaults are the Phase 14
+    # definition (12-month minus 1-month). Varied only to test whether the
+    # result depends on one narrow parameter choice.
+    momentum_long_days: int = 252
+    momentum_skip_days: int = 21
+    # Restrict the scored universe to the top N by liquidity rank. None = all
+    # active stocks. Uses the existing liquidity methodology unchanged.
+    universe_top_n: int | None = None
+
     # --- Scoring blend used by the backtest (technical/risk renormalised) ---
     technical_weight: float = 0.6
     risk_weight: float = 0.4

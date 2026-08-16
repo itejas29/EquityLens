@@ -39,8 +39,12 @@ from app.models.fundamentals import Fundamentals
 from app.models.indicator import Indicator
 from app.models.price_history import PriceHistory
 from app.models.stock import Stock
+import pandas as pd
+
+from app.core.v1_strategy import V1, V1_VERSION
 from app.services.levels import Levels, compute_levels_for_stock
-from app.services.scoring import StockScore, score_universe
+from app.services.market_data import fetch_price_history
+from app.services.scoring import StockScore, _map_signal
 
 logger = logging.getLogger(__name__)
 
@@ -199,48 +203,119 @@ def _build_rationale(db: Session, stock: Stock, ind: Indicator | None, close: fl
     return out
 
 
+def compute_market_regime(db: Session, as_of: date_type) -> dict:
+    """NIFTY 200DMA regime, point-in-time as of `as_of`.
+
+    Same rule the backtest uses: close >= 200DMA is bull. Surfaced in the API so
+    the UI can state the market state and the resulting exposure rather than
+    silently publishing a full-size list during a defensive regime.
+    """
+    bench = fetch_price_history("^NSEI", period="2y")[["date", "close"]].sort_values("date")
+    bench = bench[bench["date"] <= as_of]
+    if len(bench) < V1.regime_ma_days:
+        return {"regime": "unknown", "exposure": 1.0, "nifty_close": None, "nifty_200dma": None}
+
+    closes = bench["close"].astype(float)
+    ma = float(closes.tail(V1.regime_ma_days).mean())
+    close = float(closes.iloc[-1])
+    is_bull = close >= ma
+    return {
+        "regime": "bull" if is_bull else "bear",
+        "exposure": V1.bull_exposure if is_bull else V1.bear_exposure,
+        "nifty_close": round(close, 2),
+        "nifty_200dma": round(ma, 2),
+        "as_of": bench["date"].iloc[-1],
+    }
+
+
+def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dict[int, float]:
+    """12-month minus 1-month return, percentile-ranked 0-100 across the universe.
+
+    Identical construction to app/services/backtest_scoring.py so a signal
+    published in production matches what the backtest would have selected.
+    """
+    raw: dict[int, float] = {}
+    for stock_id in stock_ids:
+        rows = (
+            db.query(PriceHistory.close)
+            .filter(PriceHistory.stock_id == stock_id, PriceHistory.date <= as_of,
+                    PriceHistory.close.isnot(None))
+            .order_by(PriceHistory.date)
+            .all()
+        )
+        closes = [float(r[0]) for r in rows]
+        if len(closes) < V1.momentum_long_days + 1:
+            continue
+        last = closes[-1]
+        long_ago = closes[-V1.momentum_long_days]
+        if long_ago <= 0:
+            continue
+        total = last / long_ago - 1
+        if V1.momentum_skip_days > 0:
+            recent = closes[-V1.momentum_skip_days]
+            if recent <= 0:
+                continue
+            total -= last / recent - 1
+        raw[stock_id] = total
+
+    if len(raw) < 2:
+        return {}
+    ranked = pd.Series(raw).rank(pct=True) * 100
+    return {int(k): float(v) for k, v in ranked.items()}
+
+
 def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
-    scores = score_universe(db)
+    """Rank the universe with EquityLens v1 (momentum), not the old composite.
+
+    The composite ranking previously used here was measured in Phase 14 as
+    close to inverted at short horizons; it is retained elsewhere for the
+    research view but must not drive published signals.
+    """
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.is_active == True).all()}  # noqa: E712
+    momentum = _momentum_scores(db, list(stocks.keys()), as_of)
+    if not momentum:
+        logger.warning("No momentum scores computable as of %s", as_of)
+        return []
+
     candidates: list[Candidate] = []
-
-    for score in scores:
-        if score.overall_score is None or score.overall_score < MIN_OVERALL_SCORE:
+    for stock_id, mom_score in sorted(momentum.items(), key=lambda kv: kv[1], reverse=True):
+        if mom_score < MIN_OVERALL_SCORE:
             continue
-        # The completeness gate: no price-derived evidence, no entry call.
-        missing_required = [
-            name for name in REQUIRED_SUBSCORES if getattr(score, f"{name}_score") is None
-        ]
-        if missing_required:
-            logger.info("Skipping %s — %s sub-score(s) unavailable", score.symbol, ", ".join(missing_required))
-            continue
-
-        stock = stocks.get(score.stock_id)
+        stock = stocks.get(stock_id)
         if stock is None:
             continue
 
-        bar = _latest_priced_bar(db, score.stock_id)
+        bar = _latest_priced_bar(db, stock_id)
         if bar is None:
             continue
         age = (as_of - bar.date).days
         if age > MAX_REFERENCE_AGE_DAYS:
-            logger.info("Skipping %s — most recent close is %d days old", score.symbol, age)
+            logger.info("Skipping %s — most recent close is %d days old", stock.symbol, age)
             continue
 
-        levels = compute_levels_for_stock(db, score.stock_id)
+        # Frozen v1 exit geometry: 4 ATR, support stop OFF.
+        levels = compute_levels_for_stock(db, stock_id, V1)
         if levels is None:
-            logger.info("Skipping %s — levels not computable", score.symbol)
+            logger.info("Skipping %s — levels not computable", stock.symbol)
             continue
 
         close = float(bar.close)
+        score = StockScore(
+            stock_id=stock_id,
+            symbol=stock.symbol,
+            technical_score=None,
+            fundamental_score=None,
+            valuation_score=None,
+            risk_score=None,
+            overall_score=round(mom_score, 2),
+            signal=_map_signal(mom_score),
+            missing_inputs={},
+        )
         candidates.append(
             Candidate(
-                score=score,
-                stock=stock,
-                levels=levels,
-                reference_close=close,
-                reference_date=bar.date,
-                rationale=_build_rationale(db, stock, _latest_indicator(db, score.stock_id), close),
+                score=score, stock=stock, levels=levels,
+                reference_close=close, reference_date=bar.date,
+                rationale=_build_rationale(db, stock, _latest_indicator(db, stock_id), close),
             )
         )
 

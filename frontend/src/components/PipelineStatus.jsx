@@ -1,18 +1,14 @@
 import { useState, useEffect } from "react";
-import { getApiUrl } from "../utils/api";
+import { apiClient } from "../api/client";
 
 export default function PipelineStatus() {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(getApiUrl("/health/pipeline"))
+    apiClient.get("/health/pipeline")
       .then(res => {
-        if (!res.ok) throw new Error("Network response was not ok");
-        return res.json();
-      })
-      .then(data => {
-        setStatus(data);
+        setStatus(res.data);
         setError(false);
       })
       .catch(err => {

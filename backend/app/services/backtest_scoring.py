@@ -158,12 +158,20 @@ def compute_point_in_time_universe(
             if stock_id not in bounded_frames:
                 continue
             closes = bounded_frames[stock_id]["close"].astype(float).dropna()
-            if len(closes) < 253:
+            lookback = getattr(params, "momentum_long_days", 252)
+            skip = getattr(params, "momentum_skip_days", 21)
+            if len(closes) < lookback + 1:
                 continue
-            last, long_ago, month_ago = closes.iloc[-1], closes.iloc[-252], closes.iloc[-21]
-            if long_ago <= 0 or month_ago <= 0:
+            last, long_ago = closes.iloc[-1], closes.iloc[-lookback]
+            if long_ago <= 0:
                 continue
-            raw_mom[stock_id] = float((last / long_ago - 1) - (last / month_ago - 1))
+            total = last / long_ago - 1
+            if skip > 0:
+                recent_base = closes.iloc[-skip]
+                if recent_base <= 0:
+                    continue
+                total -= last / recent_base - 1
+            raw_mom[stock_id] = float(total)
         if len(raw_mom) >= 2:
             ser = pd.Series(raw_mom).rank(pct=True) * 100
             momentum_rank = ser.to_dict()

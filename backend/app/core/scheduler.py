@@ -39,6 +39,7 @@ from sqlalchemy import func
 from app.core.cache import get_live_prices, get_session_snapshot, set_live_prices, set_session_snapshot
 from app.core.daily_signals_config import GENERATION_HOUR, GENERATION_MINUTE
 from app.core.database import SessionLocal
+from app.core.experiment_lock import is_locked, lock_info
 from app.core.fundamentals_config import (
     FUNDAMENTALS_REFRESH_DAY,
     FUNDAMENTALS_REFRESH_HOUR,
@@ -447,6 +448,13 @@ def _full_rebuild_done_this_week(as_of: date_type) -> bool:
 
 
 def _run_full_rebuild(as_of: date_type) -> int:
+    # Research runs hold an advisory lock. Rebuilding the universe under a
+    # long walk-forward changes membership mid-experiment, which corrupted a
+    # previous Phase 15 run; skip rather than silently mutate.
+    if is_locked():
+        logger.warning("Universe rebuild SKIPPED — experiment lock held: %s", lock_info())
+        return 0
+
     """Run the full universe rebuild and record a PipelineRun."""
     from app.services.universe import build_universe
 
