@@ -212,6 +212,12 @@ def compute_market_regime(db: Session, as_of: date_type) -> dict:
     silently publishing a full-size list during a defensive regime.
     """
     bench = fetch_price_history("^NSEI", period="2y")[["date", "close"]].sort_values("date")
+    # Yahoo's row for the still-forming session (today, before intraday data
+    # settles) frequently comes back with a NaN close. json.dumps cannot encode
+    # NaN, so an un-dropped one here 500s the whole /daily-signals endpoint —
+    # not a hypothetical, this took the endpoint down on 2026-08-19. Same
+    # dropna the scheduler already applies to per-stock bars for the same reason.
+    bench = bench.dropna(subset=["close"])
     bench = bench[bench["date"] <= as_of]
     if len(bench) < V1.regime_ma_days:
         return {"regime": "unknown", "exposure": 1.0, "nifty_close": None, "nifty_200dma": None}

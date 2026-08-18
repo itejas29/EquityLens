@@ -138,7 +138,7 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <form className="panel__form" noValidate onSubmit={handleSubmit}>
+            <form className="panel__form" onSubmit={handleSubmit}>
               <div className="form__field">
                 <label htmlFor="reg-name" className="visually-hidden">Name</label>
                 <input

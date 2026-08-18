@@ -131,7 +131,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form className="panel__form" noValidate onSubmit={handleSubmit}>
+            <form className="panel__form" onSubmit={handleSubmit}>
               <div className="form__field">
                 <label htmlFor="login-email" className="visually-hidden">Email</label>
                 <input
