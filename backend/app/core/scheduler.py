@@ -522,6 +522,20 @@ def _run_incremental_update(as_of: date_type) -> int:
 
         result = incremental_price_update(db, today=as_of)
 
+        # 0 active stocks means the DB was in a transient state (e.g. a fresh
+        # deploy racing a data restore) rather than a real "nothing to do"
+        # day. Recording this as "complete" made _incremental_done_today()
+        # treat the day as finished forever — confirmed live: the Render
+        # deploy hit this on first boot against an empty Neon DB, and the real
+        # 20:00 IST run for that date never got a second chance because the
+        # vacuous run already "completed" it. Deleting the placeholder instead
+        # of completing it lets the next 5-minute tick retry for real.
+        if result.requested == 0:
+            db.delete(pipeline_run)
+            db.commit()
+            logger.warning("pipeline.incremental.empty_active_stocks date=%s — not recording as complete", as_of)
+            return 0
+
         try:
             from app.services.forward_testing import evaluate_signal_outcomes, record_paper_snapshot
             from app.models.paper_trading import PaperAccount

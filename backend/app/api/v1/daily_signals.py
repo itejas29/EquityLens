@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.cache import get_live_prices
+from app.services.market import get_price_feed
 from app.core.database import get_db
 from app.core.rate_limit import rate_limit_analysis
 from app.models.daily_signal import DailySignal
@@ -112,11 +112,13 @@ def list_daily_signals(
         )
 
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}
-    # Intraday prices when the refresher has them. When it does not, latest_price
-    # stays None rather than falling back to reference_close: the UI renders this
-    # in a column labelled "Live price", so substituting the frozen close there
-    # shows a stale number as a moving one, at a permanent 0.00% change.
-    live = get_live_prices() or {}
+    # get_price_feed(), not a raw cache read: live ticks when the market is open,
+    # falling back to the frozen last-session snapshot when it is closed, so a
+    # closed market shows the last real price rather than a blank "-". Each
+    # entry still carries its own capture timestamp either way, so nothing here
+    # is presented as more current than it is. Only when NEITHER exists (e.g.
+    # a brand-new deploy with no tape yet) does latest_price stay None.
+    live = get_price_feed().prices
 
     signals = []
     for row in rows:
@@ -198,7 +200,7 @@ def get_daily_signal_for_symbol(
     # Get outcome if any
     outcome = db.query(SignalOutcome).filter(SignalOutcome.signal_id == signal.id).first()
     
-    live = get_live_prices() or {}
+    live = get_price_feed().prices
     quote = live.get(symbol.upper())
     latest_price = quote["price"] if quote else None
     
