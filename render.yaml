@@ -34,8 +34,9 @@ services:
       - key: TZ
         value: Asia/Kolkata
 
-  - type: static
+  - type: web
     name: equitylens-frontend
+    runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
