@@ -8,9 +8,26 @@ from sqlalchemy.orm import Session
 from app.models.daily_signal import DailySignal, SignalOutcome
 from app.models.paper_trading import PaperAccount, PaperEquitySnapshot
 from app.models.price_history import PriceHistory
+from app.services.market_data import fetch_price_history
 from app.services.paper_trading import get_account_summary
 
 logger = logging.getLogger(__name__)
+
+
+def _nifty_closes(start: date_type, end: date_type) -> dict[date_type, float]:
+    """NIFTY 50 close per trading day in [start, end], keyed by date.
+
+    NOT read from stocks/price_history via a join: NIFTY is an index, not a
+    member of the 500-stock tradable universe, so there has never been (and
+    should never be) a `stocks` row for it — adding one would be exactly the
+    kind of universe change this project rules out. Fetched the same way
+    compute_market_regime() already gets it: directly from Yahoo via ^NSEI.
+    The still-forming session's row can come back with a NaN close (see the
+    identical fix in compute_market_regime), so it is dropped here too.
+    """
+    df = fetch_price_history("^NSEI", period="2y")[["date", "close"]].dropna(subset=["close"])
+    df = df[(df["date"] >= start) & (df["date"] <= end)]
+    return {row.date: float(row.close) for row in df.itertuples()}
 
 
 def record_paper_snapshot(db: Session, account_id: int, date: date_type) -> PaperEquitySnapshot:
@@ -27,18 +44,13 @@ def record_paper_snapshot(db: Session, account_id: int, date: date_type) -> Pape
     # We need the nifty close on account.created_at.date() and on `date`
     nifty_return = None
     created_date = account.created_at.date()
-    nifty_start = db.query(PriceHistory).join(PriceHistory.stock).filter(
-        PriceHistory.date >= created_date, 
-        PriceHistory.stock.has(symbol="NIFTY 50")
-    ).order_by(PriceHistory.date.asc()).first()
-    
-    nifty_end = db.query(PriceHistory).join(PriceHistory.stock).filter(
-        PriceHistory.date <= date, 
-        PriceHistory.stock.has(symbol="NIFTY 50")
-    ).order_by(PriceHistory.date.desc()).first()
-    
-    if nifty_start and nifty_end and nifty_start.close and nifty_end.close:
-        nifty_return = float((nifty_end.close - nifty_start.close) / nifty_start.close * 100)
+    nifty_window = _nifty_closes(created_date, date)
+    if nifty_window:
+        window_dates = sorted(nifty_window.keys())
+        nifty_start_close = nifty_window[window_dates[0]]
+        nifty_end_close = nifty_window[window_dates[-1]]
+        if nifty_start_close:
+            nifty_return = float((nifty_end_close - nifty_start_close) / nifty_start_close * 100)
     
     # Calculate daily_return and cumulative_return
     # Cumulative is simply (equity - initial_capital) / initial_capital
@@ -85,14 +97,8 @@ def evaluate_signal_outcomes(db: Session, target_date: date_type) -> int:
         return 0
         
     # We need a quick way to get NIFTY returns.
-    nifty_rows = db.query(PriceHistory).join(PriceHistory.stock).filter(
-        PriceHistory.date >= cutoff_date,
-        PriceHistory.date <= target_date,
-        PriceHistory.stock.has(symbol="NIFTY 50")
-    ).order_by(PriceHistory.date.asc()).all()
-    
-    nifty_closes = {r.date: float(r.close) for r in nifty_rows if r.close}
-    
+    nifty_closes = _nifty_closes(cutoff_date, target_date)
+
     # To count trading days correctly, we can use the nifty dates as our trading calendar
     calendar = sorted(list(nifty_closes.keys()))
     
