@@ -79,7 +79,51 @@ service's URL, which is why this is a second pass rather than step 4.
    - `CORS_ORIGINS` = `https://equitylens-frontend.onrender.com`
    - Save; the backend redeploys and will now accept the frontend's origin.
 
-## 6. Keep the backend awake
+## 6. Fix SPA routing (required — direct URLs 404 without it)
+
+Render's static site host looks for a file at the exact request path. `/`
+finds `index.html` and works; `/login` or `/today` finds nothing and returns
+a bare 404 before React Router ever loads, because there is no `login/`
+directory in the build output. Confirmed live on this deployment: `GET
+/login` returned 404 until this rule was added.
+
+1. Render dashboard -> `equitylens-frontend` -> **Redirects/Rewrites** tab.
+2. Add a rule:
+   - Source Path: `/*`
+   - Action: `Rewrite`
+   - Destination Path: `/index.html`
+3. Takes effect immediately, no redeploy needed.
+
+## 7. Migrate existing data (skip only for a genuinely fresh install)
+
+`alembic upgrade head` (baked into the Docker CMD) creates empty tables —
+it does not copy any rows. If you already have stocks/price_history/signals
+in a local docker-compose Postgres, Neon starts with none of it and every
+page will show zero data until this runs once.
+
+```bash
+# from the repo root, local Docker running
+mkdir -p backups
+docker compose exec -T postgres pg_dump -U equitylens --data-only --disable-triggers equitylens \
+  | gzip > backups/equitylens_data_$(date +%Y%m%d_%H%M%S).sql.gz
+
+# restore into Neon — replace with your own connection string from step 2
+gunzip -c backups/equitylens_data_*.sql.gz | docker compose exec -T postgres psql "<NEON_CONNECTION_STRING>"
+```
+
+`--data-only` skips schema (CREATE TABLE etc.) since Neon's schema already
+came from the same `alembic upgrade head` the backend ran on deploy —
+restoring schema again would just throw "already exists" for every table.
+`--disable-triggers` avoids FK-order issues during a straight data load.
+
+Verify:
+
+```bash
+docker compose exec -T postgres psql "<NEON_CONNECTION_STRING>" -c \
+  "SELECT (SELECT count(*) FROM stocks) stocks, (SELECT count(*) FROM price_history) bars, (SELECT count(*) FROM daily_signals) signals;"
+```
+
+## 8. Keep the backend awake
 
 Without this, the backend sleeps 15 minutes after the last request and the
 09:15/20:00 jobs get skipped exactly like they did when the Mac was off.
@@ -94,7 +138,7 @@ This keeps the process awake but does **not** guarantee zero gaps — a slow
 ping or a Render restart can still land inside a scheduled job's window. It
 is a large improvement over the Mac sleeping, not a formal uptime guarantee.
 
-## 7. Verify
+## 9. Verify
 
 1. Open the frontend URL, log in.
 2. Check `https://equitylens-backend.onrender.com/api/v1/health/pipeline` —
