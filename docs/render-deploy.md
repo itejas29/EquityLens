@@ -10,8 +10,9 @@ shape" section before you commit to it.
 - **Render free web services sleep after 15 minutes with no inbound HTTP
   traffic**, and take about a minute to wake on the next request. That would
   silently reintroduce the exact bug this deployment exists to fix (system
-  quiet -> pipeline runs missed) unless something keeps pinging it. Step 6
-  sets up that ping.
+  quiet -> pipeline runs missed) unless something keeps pinging it. Step 8
+  sets up that ping — read it fully before copying the naive 24/7 version,
+  which trades one outage for a different one.
 - **Render's own free tier has no managed Postgres or Redis** (discontinued),
   which is why Neon and Upstash are separate signups.
 - **Neon's free compute also scales to zero after 5 minutes idle.** During
@@ -123,20 +124,42 @@ docker compose exec -T postgres psql "<NEON_CONNECTION_STRING>" -c \
   "SELECT (SELECT count(*) FROM stocks) stocks, (SELECT count(*) FROM price_history) bars, (SELECT count(*) FROM daily_signals) signals;"
 ```
 
-## 8. Keep the backend awake
+## 8. Keep the backend awake — but not around the clock
 
 Without this, the backend sleeps 15 minutes after the last request and the
 09:15/20:00 jobs get skipped exactly like they did when the Mac was off.
 
+The tempting version — ping every 10 minutes, 24/7 — creates a second problem:
+Render's free plan caps usage at **750 instance-hours per workspace per
+calendar month**. Keeping one service awake continuously burns ~720-744 of
+those hours by itself (30 or 31 days x 24h), leaving almost no margin. Any
+other free service on the same account, or a month with scheduling overlap,
+can push it over — and going over does not degrade gracefully, it **suspends
+the service until the next month**. That is a worse outage than the one this
+whole deployment exists to avoid.
+
+Ping only the hours something is actually scheduled, and let it sleep
+overnight when nothing is:
+
 1. [cron-job.org](https://cron-job.org) -> free account -> Create cronjob.
 2. URL: `https://equitylens-backend.onrender.com/api/v1/health`
-3. Interval: every 10 minutes (comfortably under Render's 15-minute window).
+3. Schedule -> **Custom** (not "every N minutes, always"):
+   - Cron expression: `*/10 8-22 * * *`
+   - Timezone: **Asia/Kolkata** — get this wrong and the whole window shifts;
+     UTC would tail off mid-afternoon IST instead of at 23:00.
 4. Save. `/api/v1/health` is a cheap DB+Redis ping — no heavy queries, safe
    to hit this often.
 
-This keeps the process awake but does **not** guarantee zero gaps — a slow
-ping or a Render restart can still land inside a scheduled job's window. It
-is a large improvement over the Mac sleeping, not a formal uptime guarantee.
+This covers 08:00-22:59 IST (~15h/day, ~450h/month — comfortable headroom
+under the 750h cap) and every real job in that window: 09:10 market open,
+09:15 signals, market close, and the 20:00 incremental with nearly 3 hours
+of slack afterward for slow/retrying fetches (Yahoo has been observed taking
+20+ minutes under load during this project's development). 23:00-08:00 has
+nothing scheduled — letting the backend sleep there is the actual point.
+
+Neither version guarantees zero gaps — a slow ping or a Render restart can
+still land inside a scheduled job's window. This is a large improvement over
+the Mac sleeping, not a formal uptime guarantee.
 
 ## 9. Verify
 
