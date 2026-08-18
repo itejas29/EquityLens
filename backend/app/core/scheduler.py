@@ -557,7 +557,13 @@ def _run_incremental_update(as_of: date_type) -> int:
         pipeline_run.status = result.status
         pipeline_run.stocks_requested = result.requested
         pipeline_run.stocks_succeeded = result.succeeded
-        pipeline_run.stocks_failed = result.failed
+        # Folded into the same column rather than adding a stocks_stale column
+        # (and a migration): from "is this run trustworthy" perspective a stale
+        # stock and a failed one have the same practical consequence — neither
+        # got today's real data — and failed_symbols/failure_details below
+        # already list both together via the same not-SUCCESS/ALREADY_CURRENT
+        # check, so this keeps the numeric column consistent with those lists.
+        pipeline_run.stocks_failed = result.failed + result.stale
         pipeline_run.duration_seconds = result.seconds
         pipeline_run.failed_symbols = [
             r.symbol for r in result.results if r.status not in ("SUCCESS", "ALREADY_CURRENT")

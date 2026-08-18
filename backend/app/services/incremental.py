@@ -50,13 +50,20 @@ class IncrementalResult:
     requested: int = 0
     succeeded: int = 0
     already_current: int = 0
+    # A stock that needed new bars, queried without error, but got zero new
+    # rows back — Yahoo has not published that session's data yet. Confirmed
+    # live: a catch-up run at ~00:45 IST (9+ hours after a 15:30 close) still
+    # got this for 500/501 stocks, and every one of them was being counted as
+    # `succeeded` before this field existed, so the run reported "complete"
+    # while almost nothing had actually updated.
+    stale: int = 0
     failed: int = 0
     results: list[SymbolResult] = field(default_factory=list)
     seconds: float = 0.0
 
     @property
     def status(self) -> str:
-        if self.failed == 0:
+        if self.failed == 0 and self.stale == 0:
             return "complete"
         if self.succeeded > 0:
             return "incomplete"
@@ -327,6 +334,10 @@ def _process_incremental_pulls(
     # recently-updated stocks but keeps the download batched.
     symbols_and_starts = [(s.symbol, start) for s, start in stocks_with_start]
     symbol_to_stock = {s.symbol: s for s, _ in stocks_with_start}
+    # Each symbol's OWN needed start date, not the batch's shared (oldest)
+    # fetch-window start — a symbol further ahead in the batch must be judged
+    # against what it actually needed, not another symbol's earlier gap.
+    symbol_to_start = {s.symbol: start for s, start in stocks_with_start}
 
     for batch_idx, batch_start_idx in enumerate(range(0, len(symbols_and_starts), DOWNLOAD_BATCH_SIZE)):
         batch = symbols_and_starts[batch_start_idx : batch_start_idx + DOWNLOAD_BATCH_SIZE]
@@ -351,6 +362,7 @@ def _process_incremental_pulls(
 
         succeeded_in_batch = 0
         failed_in_batch = 0
+        stale_in_batch = 0
 
         for sym in batch_symbols:
             df = frames.get(sym)
@@ -365,8 +377,36 @@ def _process_incremental_pulls(
 
             try:
                 stock = symbol_to_stock[sym]
+                start_date = symbol_to_start[sym]
                 normalised = _normalise_df(df)
                 bars = upsert_price_history(db, stock.id, normalised)
+                latest = normalised["date"].max() if not normalised.empty else None
+
+                # bars > 0 does NOT mean the stock's history actually advanced:
+                # ON CONFLICT DO UPDATE re-touches an already-stored date just as
+                # "successfully" as it inserts a new one, so a batch whose window
+                # only re-returned an old bar (because the target session's bar
+                # is not published on Yahoo yet) still reports bars > 0. The only
+                # signal that real progress happened is whether the newest date
+                # we got back reaches at least as far as what we asked for.
+                # Confirmed live: 500/501 stocks hit exactly this the night this
+                # was found, all counted as SUCCESS, none of them actually new.
+                if latest is None or latest < start_date:
+                    result.stale += 1
+                    stale_in_batch += 1
+                    result.results.append(SymbolResult(
+                        sym, IngestionStatus.STALE_DATA, bars_added=bars, latest_date=latest,
+                        error="fetch returned no bar at or after the requested start date "
+                              "— source has not published this session yet",
+                    ))
+                    logger.warning(
+                        "pipeline.incremental.stale symbol=%s requested_from=%s got_latest=%s",
+                        sym, start_date, latest,
+                    )
+                else:
+                    result.succeeded += 1
+                    succeeded_in_batch += 1
+                    result.results.append(SymbolResult(sym, IngestionStatus.SUCCESS, bars_added=bars, latest_date=latest))
 
                 # Recompute indicators from full stored history
                 price_df = load_price_history_df(db, stock.id)
@@ -374,10 +414,6 @@ def _process_incremental_pulls(
                     upsert_indicators(db, stock.id, compute_indicators(price_df, benchmark_df))
 
                 db.commit()
-                latest = normalised["date"].max() if not normalised.empty else None
-                result.succeeded += 1
-                succeeded_in_batch += 1
-                result.results.append(SymbolResult(sym, IngestionStatus.SUCCESS, bars_added=bars, latest_date=latest))
             except Exception as exc:
                 db.rollback()
                 result.failed += 1
@@ -386,6 +422,6 @@ def _process_incremental_pulls(
                 logger.error("pipeline.incremental.store_failed symbol=%s error=%s", sym, exc)
 
         logger.info(
-            "pipeline.incremental.batch batch=%d/%d symbols=%d succeeded=%d failed=%d",
-            batch_num, total_batches, len(batch_symbols), succeeded_in_batch, failed_in_batch,
+            "pipeline.incremental.batch batch=%d/%d symbols=%d succeeded=%d stale=%d failed=%d",
+            batch_num, total_batches, len(batch_symbols), succeeded_in_batch, stale_in_batch, failed_in_batch,
         )
