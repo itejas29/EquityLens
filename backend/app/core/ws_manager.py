@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self) -> None:
         self._active: set[WebSocket] = set()
+        # Which symbol each client currently has open, so the fast-quote tier
+        # can prioritise what is actually on someone's screen. Keyed by socket
+        # so it cleans itself up on disconnect — there is no TTL to get wrong
+        # and no way for a closed tab to keep a symbol in the fast set.
+        self._viewing: dict[WebSocket, str] = {}
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -23,7 +28,22 @@ class ConnectionManager:
 
     def disconnect(self, ws: WebSocket) -> None:
         self._active.discard(ws)
+        self._viewing.pop(ws, None)
         logger.debug("WS disconnected — %d remaining", len(self._active))
+
+    def set_viewing(self, ws: WebSocket, symbol: str | None) -> None:
+        """Record (or clear) the symbol this client has open."""
+        if symbol:
+            self._viewing[ws] = symbol.upper()
+        else:
+            self._viewing.pop(ws, None)
+
+    def viewed_symbols(self) -> list[str]:
+        """Distinct symbols currently open across all clients, in insertion
+        order. dict.fromkeys rather than set() so the result is stable between
+        ticks — an unstable order would reshuffle which symbols survive the cap.
+        """
+        return list(dict.fromkeys(self._viewing.values()))
 
     async def broadcast(self, message: str) -> None:
         """Send a text message to every connected client.

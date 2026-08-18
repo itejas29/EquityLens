@@ -11,6 +11,7 @@ from app.core.logging_config import setup_logging
 from app.core.scheduler import (
     daily_price_update_loop,
     daily_signals_loop,
+    fast_quote_loop,
     fundamentals_refresh_loop,
     price_refresh_loop,
     weekly_universe_rebuild_loop,
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     """Start the background tasks; cancel them on shutdown."""
     tasks = [
         asyncio.create_task(price_refresh_loop(), name="live-price-refresh"),
+        asyncio.create_task(fast_quote_loop(), name="fast-quote-refresh"),
         asyncio.create_task(daily_price_update_loop(), name="daily-price-update"),
         asyncio.create_task(daily_signals_loop(), name="daily-signals"),
         asyncio.create_task(weekly_universe_rebuild_loop(), name="weekly-universe-rebuild"),

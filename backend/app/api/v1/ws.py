@@ -15,6 +15,8 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.cache import get_fast_quotes
+from app.core.market_hours import is_market_hours
 from app.core.ws_manager import ws_manager
 from app.services.market import get_price_feed
 
@@ -51,15 +53,44 @@ async def prices_ws(ws: WebSocket) -> None:
                 )
             )
 
-        # Keep the connection alive — actual updates come via broadcast().
-        # We read from the socket only to detect disconnects (recv will raise
-        # WebSocketDisconnect when the client closes the tab/navigates away).
+        # Fast-tier quotes for the small watched set, if the loop has any. Sent
+        # separately from the tape so the client can label them with their own
+        # freshness rather than inheriting the 60s tape's.
+        fast = get_fast_quotes()
+        if fast and fast.get("quotes"):
+            await ws.send_text(
+                json.dumps(
+                    {
+                        "type": "quotes",
+                        "status": "live" if is_market_hours() else "closed",
+                        "fetched_at": fast.get("fetched_at"),
+                        "data": fast["quotes"],
+                    }
+                )
+            )
+
+        # Updates arrive via broadcast(); reading here also detects disconnects
+        # (recv raises WebSocketDisconnect when the client closes the tab).
         while True:
-            await ws.receive_text()  # blocks; client never sends, so this just waits
+            raw = await ws.receive_text()
+            # Clients announce which Stock Detail symbol they have open so the
+            # fast tier can include it. Anything unparseable is ignored on
+            # purpose — this socket is a price feed, not a command channel, and
+            # a malformed frame must not drop the connection.
+            try:
+                msg = json.loads(raw)
+                if isinstance(msg, dict) and msg.get("type") == "watch":
+                    ws_manager.set_viewing(ws, msg.get("symbol"))
+            except (ValueError, TypeError):
+                pass
 
     except WebSocketDisconnect:
         logger.debug("WS client disconnected cleanly")
     except Exception as exc:
-        logger.debug("WS error: %s", exc)
+        # Warning, not debug. A server-side bug in this handler (a NameError,
+        # a bad payload) looks exactly like a client vanishing: the socket just
+        # closes. Logging it at debug hid one for an entire debugging session —
+        # the endpoint silently served the tape and dropped every fast quote.
+        logger.warning("WS handler error: %s", exc, exc_info=True)
     finally:
         ws_manager.disconnect(ws)

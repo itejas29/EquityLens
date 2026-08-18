@@ -13,4 +13,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# $PORT is injected by Render (and most PaaS hosts) and varies per deploy;
+# docker-compose never sets it, so 8000 stays the local default.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

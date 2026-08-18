@@ -29,15 +29,31 @@ fundamentals for all active stocks. Isolated from the daily pipeline.
 import asyncio
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import yfinance as yf
 from sqlalchemy import func
 
-from app.core.cache import get_live_prices, get_session_snapshot, set_live_prices, set_session_snapshot
+from app.core.cache import (
+    get_fast_quotes,
+    get_live_prices,
+    get_session_snapshot,
+    set_fast_quotes,
+    set_live_prices,
+    set_session_snapshot,
+)
 from app.core.daily_signals_config import GENERATION_HOUR, GENERATION_MINUTE
+from app.core.fast_quotes_config import (
+    BACKOFF_AFTER_FAILURES,
+    BACKOFF_SECONDS,
+    FAST_REFRESH_SECONDS,
+    FETCH_TIMEOUT_SECONDS,
+    MAX_FAST_SYMBOLS,
+    SYMBOL_SET_REFRESH_SECONDS,
+)
+from app.core.market_hours import IST, is_market_hours
 from app.core.database import SessionLocal
 from app.core.experiment_lock import is_locked, lock_info
 from app.core.fundamentals_config import (
@@ -53,25 +69,25 @@ from app.models.stock import Stock
 
 logger = logging.getLogger(__name__)
 
-IST = ZoneInfo("Asia/Kolkata")
-MARKET_OPEN  = (9, 10)   # HH, MM
-MARKET_CLOSE = (15, 40)
-
 # Saturday — the full universe rebuild runs here (no trading, no interference).
 FULL_REBUILD_DAY = 5
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipeline")
 
+# Tier 2's fetches must not queue behind Tier 1's 500-symbol download, which
+# occupies a worker for 30-90s — hence a separate pool. One worker is right:
+# the loop awaits each fetch before starting the next, so there is never more
+# than one in flight, and a second worker could only ever hold an orphan.
+_fast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fastquote")
+
 
 # --- Helpers ---
 
 
-def _is_market_hours() -> bool:
-    now = datetime.now(IST)
-    if now.weekday() >= 5:
-        return False
-    curr = now.hour * 60 + now.minute
-    return (MARKET_OPEN[0] * 60 + MARKET_OPEN[1]) <= curr <= (MARKET_CLOSE[0] * 60 + MARKET_CLOSE[1])
+# Kept as a module-local alias: the trading window now lives in core.market_hours
+# so the API layer can use it too, but every call site in this file predates
+# that move.
+_is_market_hours = is_market_hours
 
 
 def _get_active_symbols() -> list[str]:
@@ -86,12 +102,31 @@ def _get_active_symbols() -> list[str]:
 # --- Live price refresh (unchanged) ---
 
 
-def _download_prices(symbols: list[str]) -> dict:
-    """Blocking yfinance call — run in executor thread."""
+def _yahoo_ticker(symbol: str) -> str:
+    """Yahoo ticker for an EquityLens symbol.
+
+    NSE equities take the .NS suffix. Index symbols are already full Yahoo
+    tickers (^NSEI) and must be passed through untouched — appending .NS to one
+    yields a ticker that does not exist, which is why the index could never
+    appear in the live feed.
+    """
+    return symbol if symbol.startswith("^") else f"{symbol}.NS"
+
+
+def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
+    """Blocking yfinance call — run in executor thread.
+
+    `timeout` bounds each underlying HTTP request. Tier 1 passes None and keeps
+    yfinance's default, because a slow 500-symbol fetch is still worth waiting
+    out once a minute. Tier 2 passes a short one: when the network degrades,
+    yfinance falls back to fetching tickers individually, and at the default
+    timeout a handful of symbols can block a 10s loop for minutes. Failing fast
+    lets the backoff path do its job instead.
+    """
     if not symbols:
         return {}
 
-    nse = [f"{s}.NS" for s in symbols]
+    nse = [_yahoo_ticker(s) for s in symbols]
     result: dict = {}
 
     try:
@@ -103,13 +138,14 @@ def _download_prices(symbols: list[str]) -> dict:
             auto_adjust=False,
             progress=False,
             threads=True,
+            **({"timeout": timeout} if timeout is not None else {}),
         )
     except Exception as exc:
         logger.warning("yfinance batch download failed: %s", exc)
         return {}
 
     for sym in symbols:
-        ticker = f"{sym}.NS"
+        ticker = _yahoo_ticker(sym)
         try:
             df = raw[ticker] if len(nse) > 1 else raw
             if df is None or df.empty:
@@ -185,6 +221,131 @@ async def price_refresh_loop() -> None:
             "Prices refreshed — %d symbols, %d WS clients",
             len(existing), ws_manager.connection_count,
         )
+
+
+# --- Tier 2: fast quotes for the small watched set ---
+
+
+async def fast_quote_loop() -> None:
+    """Re-quotes only the symbols someone is actually looking at, every
+    FAST_REFRESH_SECONDS.
+
+    Tier 1 above still owns all 500 universe stocks on its 60s cadence and is
+    untouched — Discover, the screener, Sectors and the market overview keep
+    reading exactly what they read before. This loop exists because ~10 symbols
+    on screen deserve a human-visible refresh rate and 500 do not.
+
+    It is affordable because it reuses Tier 1's *batched* `_download_prices`:
+    one HTTP request per tick no matter how many symbols are in the set. The
+    cost of going to 10s is therefore ~5 extra requests a minute in total, not
+    5 per symbol.
+
+    DISPLAY ONLY. Nothing here writes to price_history, recomputes signals, or
+    touches scoring — a quote landing mid-session must never move a level that
+    the 09:15 run froze.
+
+    Never raises: every failure path keeps the last known quotes and backs off,
+    because a crash here would take the asyncio task down for the whole day.
+    """
+    # Bound once, up front. Importing it further down would make `ws_manager`
+    # a function-local for the whole body and raise UnboundLocalError on the
+    # first read above the import.
+    from app.core.ws_manager import ws_manager  # avoid circular at module load
+    from app.services.watched_symbols import build_watched_symbols
+
+    logger.info(
+        "Fast quote loop started — %ds cadence, max %d symbols",
+        FAST_REFRESH_SECONDS, MAX_FAST_SYMBOLS,
+    )
+    symbols: list[str] = []
+    symbols_built_at = 0.0
+    consecutive_failures = 0
+
+    while True:
+        try:
+            await asyncio.sleep(FAST_REFRESH_SECONDS)
+
+            if not _is_market_hours():
+                # Nothing to poll for. Tier 1's frozen session snapshot is what
+                # the UI shows outside hours, correctly labelled "closed".
+                consecutive_failures = 0
+                continue
+
+            now = time.monotonic()
+            if not symbols or (now - symbols_built_at) >= SYMBOL_SET_REFRESH_SECONDS:
+                symbols = await asyncio.get_event_loop().run_in_executor(
+                    _fast_executor, build_watched_symbols, tuple(ws_manager.viewed_symbols())
+                )
+                symbols_built_at = now
+
+            if not symbols:
+                continue
+
+            # Awaited to completion, deliberately WITHOUT asyncio.wait_for.
+            # A deadline here does not cancel the thread — Python cannot — so an
+            # overrun left the worker occupied while the loop queued another
+            # fetch behind it. Once the pool was full, every later tick spent its
+            # whole deadline waiting for a free worker, timed out without ever
+            # calling Yahoo, and tripped the backoff: a stall that fed itself and
+            # stopped price updates entirely. Awaiting is already self-limiting —
+            # a slow fetch simply makes the next tick later, and each quote's own
+            # timestamp lets the UI show the true age.
+            quotes = await asyncio.get_event_loop().run_in_executor(
+                _fast_executor, _download_prices, symbols, FETCH_TIMEOUT_SECONDS
+            )
+
+            # _download_prices swallows its own errors and returns {} — an empty
+            # result is how a rate-limited or failed batch surfaces here.
+            if not quotes:
+                consecutive_failures += 1
+                if consecutive_failures >= BACKOFF_AFTER_FAILURES:
+                    logger.warning(
+                        "fast_quotes.backoff — %d consecutive empty fetches, pausing %ds",
+                        consecutive_failures, BACKOFF_SECONDS,
+                    )
+                    # Tier 1 shares this IP. Backing off protects the universe
+                    # refresh too, which matters more than fast quotes do.
+                    await asyncio.sleep(BACKOFF_SECONDS)
+                    consecutive_failures = 0
+                continue
+
+            consecutive_failures = 0
+
+            # Keep the last known quote for any symbol that returned nothing this
+            # tick — it carries its own timestamp, so the client ages it out
+            # individually instead of the whole batch looking uniformly fresh.
+            previous = (get_fast_quotes() or {}).get("quotes", {})
+            watched = set(symbols)
+            merged = {
+                sym: quote
+                for sym, quote in {**previous, **quotes}.items()
+                if sym in watched  # drop symbols that left the set
+            }
+
+            fetched_at = datetime.now(IST).isoformat()
+            set_fast_quotes(merged, fetched_at)
+
+            if ws_manager.connection_count > 0:
+                await ws_manager.broadcast(
+                    json.dumps({
+                        "type": "quotes",
+                        "status": "live",
+                        "fetched_at": fetched_at,
+                        "data": merged,
+                    })
+                )
+
+            logger.debug(
+                "fast_quotes.tick symbols=%d fetched=%d ws=%d",
+                len(symbols), len(quotes), ws_manager.connection_count,
+            )
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Last line of defence — one bad tick must not end the loop.
+            logger.exception("fast_quotes.tick_failed: %s", exc)
+            consecutive_failures += 1
 
 
 # --- Daily pre-market shortlist (signal generation) ---

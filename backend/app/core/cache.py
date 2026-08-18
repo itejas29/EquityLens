@@ -83,7 +83,13 @@ def set_backtest_cache(config_hash: str, value: dict) -> None:
 
 # ── Live prices (written by scheduler, read by WS endpoint & REST fallback) ──
 
-TTL_LIVE_PRICES = 90  # seconds — expires if scheduler misses 1 tick
+# Was 90s, on the assumption of a ~60s refresh cycle. That assumption broke:
+# the 501-symbol fetch now takes 30-95s depending on Yahoo, so a full cycle runs
+# 90-155s and the key was expiring BETWEEN healthy refreshes. The tape went
+# empty for most of every cycle and the UI read it as "market closed" mid-
+# session. Sized to outlast a slow-but-working cycle while still expiring if the
+# refresher genuinely dies.
+TTL_LIVE_PRICES = 300  # seconds
 
 # The frozen last-session snapshot. Long-lived on purpose: the 90s key above is
 # a liveness signal (is the refresher currently ticking?), and letting it expire
@@ -129,3 +135,50 @@ def set_session_snapshot(prices: dict, captured_at: str, session_date: str) -> N
         {"prices": prices, "captured_at": captured_at, "session_date": session_date},
         TTL_SESSION_SNAPSHOT,
     )
+
+
+# ── Fast-tier quotes (Tier 2: small watched set, ~10s cadence) ──
+
+# Deliberately much longer than the refresh interval. Staleness is judged from
+# each quote's own timestamp, never from key expiry — so one missed tick must
+# not empty the map and make the UI fall back to the 60s tape. This TTL is only
+# the backstop for a loop that has died outright.
+TTL_FAST_QUOTES = 300
+
+
+def fast_quotes_key() -> str:
+    return "live:quotes:fast"
+
+
+def get_fast_quotes() -> dict | None:
+    """Shape: {"quotes": {SYMBOL: {price, change, change_pct, volume, timestamp}},
+    "fetched_at": iso8601}. Each quote carries its own timestamp, so a symbol
+    that failed to refresh can be aged out individually rather than the batch
+    being treated as uniformly fresh.
+    """
+    return _get_json(fast_quotes_key())
+
+
+def set_fast_quotes(quotes: dict, fetched_at: str) -> None:
+    _set_json(fast_quotes_key(), {"quotes": quotes, "fetched_at": fetched_at}, TTL_FAST_QUOTES)
+
+
+# ── Market overview (Home dashboard) ──
+
+# Derived entirely from stored daily bars, which only change when the 20:00
+# ingestion writes a new session — so this cannot go stale mid-session. The key
+# carries the session date, which is what actually invalidates it; the TTL is
+# only a backstop so a stale session's entry cannot live forever.
+TTL_MARKET_OVERVIEW = 3600
+
+
+def market_overview_key(as_of: str, limit: int) -> str:
+    return f"cache:market_overview:{as_of}:{limit}"
+
+
+def get_market_overview_cache(as_of: str, limit: int) -> dict | None:
+    return _get_json(market_overview_key(as_of, limit))
+
+
+def set_market_overview_cache(as_of: str, limit: int, value: dict) -> None:
+    _set_json(market_overview_key(as_of, limit), value, TTL_MARKET_OVERVIEW)

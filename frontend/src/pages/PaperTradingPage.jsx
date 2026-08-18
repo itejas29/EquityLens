@@ -2,9 +2,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
+import LiveQuote from "../components/LiveQuote";
 import {
   Change, EmptyState, ErrorState, LoadingState, SectionHeader, inr, pct, fmtDate
 } from "../components/ui/Primitives";
+import { useLivePrices } from "../lib/useLivePrices";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
@@ -53,6 +55,36 @@ function PerformanceChart({ data }) {
   );
 }
 
+/**
+ * Live mark for one holding, plus P&L restated against it.
+ *
+ * The cost basis is recovered from the API's own two numbers rather than from
+ * entry_price * quantity. entry_price is a per-share figure rounded to the
+ * paisa, so multiplying it back out drifts from the ledger — the backend is
+ * explicit about this (see the P&L IDENTITY note in services/paper_trading.py).
+ * Recovering the basis keeps the live figure on exactly the basis the server
+ * used, so the two never disagree.
+ *
+ * Historical fills are untouched: this restates the mark only.
+ */
+function markOf(h, quotes) {
+  const quote = quotes[h.symbol] || null;
+  const price = quote?.price ?? h.current_price ?? null;
+
+  if (h.current_price == null || h.unrealized_pnl == null || price == null) {
+    return { price, quote, pnl: h.unrealized_pnl, pnlPct: h.unrealized_pnl_pct };
+  }
+
+  const basis = h.current_price * h.quantity - h.unrealized_pnl;
+  const pnl = price * h.quantity - basis;
+  return {
+    price,
+    quote,
+    pnl: Math.round(pnl * 100) / 100,
+    pnlPct: basis ? Math.round((pnl / basis) * 10000) / 100 : null,
+  };
+}
+
 export default function PaperTradingPage() {
   const [acct, setAcct] = useState(null);
   const [curve, setCurve] = useState(null);
@@ -63,28 +95,46 @@ export default function PaperTradingPage() {
   const [qty, setQty] = useState(10);
   const [placing, setPlacing] = useState(false);
   const [msg, setMsg] = useState(null);
+  // Holdings are in the fast tier, so their marks arrive over the socket
+  // between the 60s account polls.
+  const { quotes } = useLivePrices();
 
-  function load() {
-    setLoading(true);
+  // `background` polls skip the spinner: without it the whole panel would
+  // flash a loading state every refresh tick.
+  function load({ background = false } = {}) {
+    if (!background) setLoading(true);
     Promise.allSettled([
       apiClient.get("/paper/account"),
       apiClient.get("/paper/equity-curve"),
       apiClient.get("/paper/transactions")
     ]).then(([a, c, t]) => {
-      if (a.status === "fulfilled") setAcct(a.value.data);
-      else setError(apiErrorMessage(a.reason));
+      if (a.status === "fulfilled") {
+        setAcct(a.value.data);
+        // Cleared on success, so a transient blip during polling doesn't leave
+        // a stale error banner sitting above data that has since recovered.
+        setError("");
+      } else {
+        setError(apiErrorMessage(a.reason));
+      }
       if (c.status === "fulfilled") setCurve(c.value.data);
       if (t.status === "fulfilled") setTrades(t.value.data);
-    }).finally(() => setLoading(false));
+    }).finally(() => { if (!background) setLoading(false); });
   }
-  
+
   useEffect(() => {
     load();
+    // Holdings are marked at live prices server-side, so the values are only as
+    // fresh as the last request. Without this the page would show the prices
+    // from the moment it mounted for the rest of the session. 60s matches the
+    // scheduler's price-refresh cadence — polling faster just returns the same
+    // numbers.
+    const id = setInterval(() => load({ background: true }), 60_000);
     const params = new URLSearchParams(window.location.search);
     const buySym = params.get("buy");
     if (buySym) {
       setSymbol(buySym.toUpperCase());
     }
+    return () => clearInterval(id);
   }, []);
 
   async function order(side) {
@@ -201,22 +251,31 @@ export default function PaperTradingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {holdings.map((h) => (
+                  {holdings.map((h) => {
+                    const m = markOf(h, quotes);
+                    return (
                     <tr key={h.trade_id}>
                       <td><Link to={`/stocks/${h.symbol}`} className="sym">{h.symbol}</Link></td>
                       <td className="r num">{h.quantity}</td>
+                      {/* Entry price is the historical fill and never moves. */}
                       <td className="r num">{inr(h.entry_price)}</td>
-                      <td className="r num price">{inr(h.current_price)}</td>
-                      <td className="r"><Change value={h.unrealized_pnl_pct} absolute={h.unrealized_pnl} /></td>
+                      <td className="r num price">
+                        {inr(m.price)}
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                          <LiveQuote quote={m.quote} />
+                        </div>
+                      </td>
+                      <td className="r"><Change value={m.pnlPct} absolute={m.pnl} /></td>
                       <td className="r num col-hide-lg" style={{ color: "var(--text-3)" }}>
-                        {acct.equity ? `${(((h.current_price ?? h.entry_price) * h.quantity / acct.equity) * 100).toFixed(1)}%` : "—"}
+                        {acct.equity ? `${(((m.price ?? h.entry_price) * h.quantity / acct.equity) * 100).toFixed(1)}%` : "—"}
                       </td>
                       <td className="r">
                         <button className="btn btn-sm" disabled={placing}
                           onClick={() => { setSymbol(h.symbol); order("sell"); }}>Sell</button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

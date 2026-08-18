@@ -125,7 +125,10 @@ export function ErrorState({ message, onRetry }) {
 const CALL = {
   IN_ZONE: { label: "IN ENTRY ZONE", cls: "badge-buy" },
   BELOW_ZONE: { label: "BELOW ENTRY", cls: "badge-buy" },
-  ABOVE_ZONE: { label: "ABOVE ENTRY", cls: "badge-wait" },
+  // Explicitly directive: price has run past the frozen zone, so the call is
+  // not to buy it here. Naming the action stops "ABOVE ENTRY" being read as a
+  // bullish confirmation.
+  ABOVE_ZONE: { label: "ABOVE ENTRY — DO NOT CHASE", cls: "badge-wait" },
   UNKNOWN: { label: "WAIT", cls: "badge-mute" },
 };
 

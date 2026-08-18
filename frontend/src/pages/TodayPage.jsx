@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { apiClient, apiErrorMessage } from "../api/client";
 import PicksTable from "../components/PicksTable";
+import { useLivePrices } from "../lib/useLivePrices";
 import {
   EmptyState, ErrorState, LoadingState, ProvenanceStrip, SectionHeader, fmtDate,
 } from "../components/ui/Primitives";
@@ -15,6 +16,9 @@ export default function TodayPage() {
   const [watchlist, setWatchlist] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // Fast-tier quotes arrive over the socket; the signal rows themselves are
+  // fetched once and stay frozen, which is the point — only the price moves.
+  const { quotes } = useLivePrices();
 
   function load() {
     setLoading(true);
@@ -54,7 +58,7 @@ export default function TodayPage() {
         />
       ) : (
         <>
-          <PicksTable signals={data.signals} watchlist={watchlist} />
+          <PicksTable signals={data.signals} watchlist={watchlist} quotes={quotes} />
           <p style={{ fontSize: 12, color: "var(--text-3)", marginTop: 14, maxWidth: 760, lineHeight: 1.6 }}>
             Levels come from a 14-day ATR against the {fmtDate(data.market_data_through)} close and are fixed for the
             day. Stops sit 4 ATR below entry; targets at twice the distance to the stop.

@@ -16,6 +16,7 @@ from app.schemas.daily_signal import (
     MomentumLeadersResponse,
 )
 from app.core.v1_strategy import V1_DESCRIPTION, V1_VERSION
+from app.models.pipeline_run import PipelineRun
 from app.models.price_history import PriceHistory
 from app.services.daily_signals import (
     compute_market_regime,
@@ -78,8 +79,19 @@ def list_daily_signals(
     market_through = db.query(func.max(PriceHistory.date)).scalar()
     today = date_type.today()
     is_current = bool(as_of == today and market_through is not None)
-    pipeline_status = "complete" if (as_of is not None and market_through is not None
-                                     and as_of >= market_through) else "incomplete"
+    # Derived from the actual ingestion run for that session, not from a date
+    # comparison. max(price_history.date) only proves SOME stock has a bar for
+    # that day — on 2026-08-17 exactly 333 of 501 did, and the old check still
+    # reported "Complete" because the dates lined up.
+    session_run = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.run_date == market_through,
+                PipelineRun.run_type.in_(["incremental", "full_rebuild"]))
+        .order_by(PipelineRun.started_at.desc())
+        .first()
+    ) if market_through is not None else None
+    pipeline_status = "complete" if (session_run is not None
+                                     and session_run.status == "complete") else "incomplete"
     regime = compute_market_regime(db, as_of) if as_of else {}
 
     common = dict(
@@ -100,8 +112,10 @@ def list_daily_signals(
         )
 
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}
-    # Intraday prices when the refresher has them; otherwise the reference
-    # close, which is what the zone was drawn against anyway.
+    # Intraday prices when the refresher has them. When it does not, latest_price
+    # stays None rather than falling back to reference_close: the UI renders this
+    # in a column labelled "Live price", so substituting the frozen close there
+    # shows a stale number as a moving one, at a permanent 0.00% change.
     live = get_live_prices() or {}
 
     signals = []
@@ -110,7 +124,7 @@ def list_daily_signals(
         if stock is None:
             continue
         quote = live.get(stock.symbol)
-        latest_price = quote["price"] if quote else float(row.reference_close)
+        latest_price = quote["price"] if quote else None
         signals.append(_to_response(row, stock, latest_price))
 
     return DailySignalsResponse(
@@ -186,7 +200,7 @@ def get_daily_signal_for_symbol(
     
     live = get_live_prices() or {}
     quote = live.get(symbol.upper())
-    latest_price = quote["price"] if quote else float(signal.reference_close)
+    latest_price = quote["price"] if quote else None
     
     base_res = _to_response(signal, stock_obj, latest_price)
     

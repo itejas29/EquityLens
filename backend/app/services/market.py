@@ -13,13 +13,20 @@ bars is 250k rows, and only the last two per stock are needed.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date as date_type
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from app.core.cache import get_live_prices, get_session_snapshot
+from app.core.cache import (
+    get_fast_quotes,
+    get_live_prices,
+    get_market_overview_cache,
+    get_session_snapshot,
+    set_market_overview_cache,
+)
+from app.models.price_history import PriceHistory
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +57,33 @@ def get_price_feed() -> PriceFeed:
     nothing, so a user opening the app at 9pm sees the day's closing prices
     labelled as closed, not an empty ticker.
     """
+    # Tier-2 quotes cover ~10-20 watched symbols at a much faster cadence, so
+    # where they exist they are strictly fresher than the 60s universe tape and
+    # win. They are read up front, not inside the live branch: the two tiers are
+    # independent loops against independent keys, and Tier 1's key expires 90s
+    # after its last write. Gating Tier 2 on Tier 1 would silently drop fresh
+    # quotes for the watched set whenever the 500-stock fetch was slow or
+    # rate-limited — exactly when they matter most.
+    fast = (get_fast_quotes() or {}).get("quotes") or {}
+
     live = get_live_prices()
     if live:
-        return PriceFeed(prices=live, status="live")
+        return PriceFeed(prices={**live, **fast} if fast else live, status="live")
 
     snapshot = get_session_snapshot()
-    if snapshot and snapshot.get("prices"):
+    base = snapshot["prices"] if snapshot and snapshot.get("prices") else {}
+
+    if base or fast:
         return PriceFeed(
-            prices=snapshot["prices"],
+            # Overlaying live quotes onto the frozen base can only make it
+            # fresher, and `status` stays "closed" so nothing here is presented
+            # as a live tape. Per-symbol timestamps ride along on each quote,
+            # which is what the UI actually labels freshness from — the frozen
+            # majority is never relabelled as live.
+            prices={**base, **fast} if fast else base,
             status="closed",
-            captured_at=snapshot.get("captured_at"),
-            session_date=snapshot.get("session_date"),
+            captured_at=snapshot.get("captured_at") if snapshot else None,
+            session_date=snapshot.get("session_date") if snapshot else None,
         )
 
     return PriceFeed(prices={}, status="stale")
@@ -142,6 +165,25 @@ def _row_to_mover(row) -> Mover:
 
 
 def get_market_overview(db: Session, limit: int = 6) -> MarketOverview:
+    # Cheap indexed probe first: the heavy CTE below scans every stock's last two
+    # bars and cost ~500ms on every Home load, even though its inputs only change
+    # when the 20:00 ingestion writes a new session. Keying the cache on that date
+    # means a new session invalidates it immediately, with no staleness window.
+    latest = db.query(func.max(PriceHistory.date)).scalar()
+    if latest is not None:
+        cached = get_market_overview_cache(latest.isoformat(), limit)
+        if cached is not None:
+            return MarketOverview(
+                as_of=date_type.fromisoformat(cached["as_of"]) if cached["as_of"] else None,
+                universe_size=cached["universe_size"],
+                gainers=[Mover(**m) for m in cached["gainers"]],
+                losers=[Mover(**m) for m in cached["losers"]],
+                most_traded=[Mover(**m) for m in cached["most_traded"]],
+                advancing=cached["advancing"],
+                declining=cached["declining"],
+                unchanged=cached["unchanged"],
+            )
+
     rows = db.execute(_SESSION_SQL).fetchall()
     if not rows:
         return MarketOverview(
@@ -160,7 +202,7 @@ def get_market_overview(db: Session, limit: int = 6) -> MarketOverview:
         (m for m in movers if m.traded_value is not None), key=lambda m: m.traded_value, reverse=True
     )
 
-    return MarketOverview(
+    overview = MarketOverview(
         as_of=as_of,
         universe_size=len(movers),
         gainers=by_change[:limit],
@@ -170,6 +212,18 @@ def get_market_overview(db: Session, limit: int = 6) -> MarketOverview:
         declining=sum(1 for m in movers if m.change_pct < 0),
         unchanged=sum(1 for m in movers if m.change_pct == 0),
     )
+
+    set_market_overview_cache(as_of.isoformat(), limit, {
+        "as_of": as_of.isoformat(),
+        "universe_size": overview.universe_size,
+        "gainers": [asdict(m) for m in overview.gainers],
+        "losers": [asdict(m) for m in overview.losers],
+        "most_traded": [asdict(m) for m in overview.most_traded],
+        "advancing": overview.advancing,
+        "declining": overview.declining,
+        "unchanged": overview.unchanged,
+    })
+    return overview
 
 
 def get_sparkline(db: Session, symbol: str, days: int = 30) -> list[float]:

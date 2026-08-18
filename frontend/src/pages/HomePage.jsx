@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import MarketStrip from "../components/MarketStrip";
+import { useLivePrices } from "../lib/useLivePrices";
 import MoversTable from "../components/MoversTable";
 import PicksTable from "../components/PicksTable";
 import {
@@ -25,6 +26,8 @@ export default function HomePage() {
   const [watchlist, setWatchlist] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
+  // Fast-tier quotes: carries ^NSEI for the live index level, plus the picks.
+  const { quotes } = useLivePrices();
 
   function load() {
     setLoading(true);
@@ -60,6 +63,7 @@ export default function HomePage() {
         <MarketStrip
           overview={overview}
           signals={signals}
+          quotes={quotes}
           loading={loading && !overview}
           error={errors.overview}
           onRetry={load}
@@ -92,7 +96,7 @@ export default function HomePage() {
           /* PREVIEW ONLY — the full V1 list lives on Today's Picks. Home is a
              market dashboard; duplicating all 8 here is what made the two
              pages feel identical. */
-          <PicksTable signals={signals.signals.slice(0, 3)} watchlist={watchlist} compact />
+          <PicksTable signals={signals.signals.slice(0, 3)} watchlist={watchlist} quotes={quotes} compact />
         )}
       </section>
 

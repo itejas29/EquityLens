@@ -22,6 +22,7 @@ from app.core.paper_trading_config import DEFAULT_VIRTUAL_CAPITAL
 from app.models.paper_trading import PaperAccount, PaperTrade
 from app.models.price_history import PriceHistory
 from app.models.stock import Stock
+from app.services.market import get_price_feed
 
 
 class PaperTradingError(Exception):
@@ -55,6 +56,35 @@ def _latest_close(db: Session, stock_id: int) -> float | None:
     if row is None or row.close is None:
         return None
     return float(row.close)
+
+
+def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, float]:
+    """Valuation price per stock_id: the tape when it carries the symbol,
+    otherwise the newest stored daily bar.
+
+    Marking deliberately goes through get_price_feed() instead of
+    _latest_close(). During a session the newest stored bar is the PREVIOUS
+    close — today's bar is not written until the 20:00 incremental — so
+    valuing holdings off it freezes every position at yesterday's price for
+    the whole trading day, showing only the transaction cost as P&L.
+
+    Fills are a separate decision and still use _latest_close(): the backtest
+    this account is benchmarked against fills on daily closes, so moving marks
+    to intraday must not silently move fills there too.
+    """
+    if not stock_ids:
+        return {}
+
+    feed = get_price_feed()
+    marks: dict[int, float] = {}
+    for stock_id, symbol in db.query(Stock.id, Stock.symbol).filter(Stock.id.in_(stock_ids)).all():
+        quote = feed.prices.get(symbol)
+        price = quote.get("price") if quote else None
+        if price is None:
+            price = _latest_close(db, stock_id)
+        if price is not None:
+            marks[stock_id] = float(price)
+    return marks
 
 
 def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
@@ -182,6 +212,11 @@ def _ratchet_peak_equity(db: Session, account: PaperAccount) -> None:
     open_trades = db.query(PaperTrade).filter(PaperTrade.account_id == account.id, PaperTrade.status == "open").all()
     market_value = 0.0
     for t in open_trades:
+        # Stored closes, NOT the live mark: peak equity is persisted, so pricing
+        # it intraday would ratchet the peak higher every time someone happened
+        # to open the page during a spike, permanently deepening every drawdown
+        # reported afterwards. Drawdown has to be a function of the data, not of
+        # when it was looked at — so the peak moves close-to-close.
         close = _latest_close(db, t.stock_id)
         if close is not None:
             market_value += close * t.quantity
@@ -202,14 +237,15 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
     holdings: list[HoldingView] = []
     market_value = 0.0
     unrealized_pnl_total = 0.0
+    marks = _mark_prices(db, [t.stock_id for t in open_trades])
     for t in open_trades:
         stock = db.query(Stock).filter(Stock.id == t.stock_id).first()
-        close = _latest_close(db, t.stock_id)
+        mark = marks.get(t.stock_id)
         unrealized_pnl = None
         unrealized_pnl_pct = None
-        if close is not None:
+        if mark is not None:
             basis = float(t.cost_basis)
-            position_value = close * t.quantity
+            position_value = mark * t.quantity
             # Against cash paid, same basis as realized P&L on the sell leg.
             unrealized_pnl = round(position_value - basis, 2)
             unrealized_pnl_pct = round((position_value - basis) / basis * 100, 2)
@@ -219,7 +255,7 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
             HoldingView(
                 trade=t,
                 symbol=stock.symbol if stock else "?",
-                current_price=close,
+                current_price=mark,
                 unrealized_pnl=unrealized_pnl,
                 unrealized_pnl_pct=unrealized_pnl_pct,
             )

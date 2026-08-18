@@ -1,0 +1,48 @@
+# Render Blueprint — deploys both services in one pass via
+# Render dashboard → New → Blueprint → point at this repo.
+#
+# Cannot be fully automated from here: DATABASE_URL and REDIS_URL come from
+# external free providers (Neon, Upstash) that need their own manual signup,
+# and CORS_ORIGINS/VITE_API_BASE_URL/VITE_WS_BASE_URL can only be filled in
+# once each service has a URL — see docs/render-deploy.md for the full,
+# ordered walkthrough. Every envVar below marked `sync: false` is a value
+# Render will prompt for at blueprint creation and leave blank if skipped.
+
+services:
+  - type: web
+    name: equitylens-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # Neon connection string — postgres:// or postgresql://, either works
+      - key: REDIS_URL
+        sync: false   # Upstash Redis URL, rediss:// (TLS)
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_MINUTES
+        value: "1440"
+      - key: CORS_ORIGINS
+        sync: false   # the frontend's Render URL, filled in AFTER it exists — see docs/render-deploy.md
+      - key: ENVIRONMENT
+        value: production
+      - key: TZ
+        value: Asia/Kolkata
+
+  - type: web
+    name: equitylens-frontend
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false   # https://equitylens-backend.onrender.com/api/v1
+      - key: VITE_WS_BASE_URL
+        sync: false   # wss://equitylens-backend.onrender.com/api/v1

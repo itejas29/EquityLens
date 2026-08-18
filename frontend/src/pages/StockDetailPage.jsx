@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import ErrorMessage from "../components/ErrorMessage";
+import LiveQuote from "../components/LiveQuote";
 import { SkeletonTable } from "../components/Skeleton";
 import Sparkline from "../components/Sparkline";
+import { useLivePrices } from "../lib/useLivePrices";
 
 /**
  * Stock detail — technicals for one symbol, computed from its own data.
@@ -124,6 +126,9 @@ export default function StockDetailPage() {
   const [signal, setSignal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Passing the symbol registers it with the server's fast-quote tier, so the
+  // stock being looked at is quoted even if it is in none of the other sets.
+  const { quotes } = useLivePrices(symbol);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +174,7 @@ export default function StockDetailPage() {
 
   const bar = stock.latest_price;
   const close = bar?.close ?? null;
+  const liveQuote = quotes[stock.symbol] || null;
   const pivots = floorPivots(bar);
   const rows = readIndicators(indicator, close);
   const bulls = rows.filter((r) => r.tone === "bull").length;
@@ -199,8 +205,31 @@ export default function StockDetailPage() {
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{inr(close)}</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Close, {bar?.date || "—"}</div>
+          {/* With a fast quote, the live price leads and the stored close is
+              demoted to context. Without one, the close is shown as a close —
+              it is never promoted into the live slot under a live label. */}
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{inr(liveQuote ? liveQuote.price : close)}</div>
+          {liveQuote ? (
+            <>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: liveQuote.change >= 0 ? "var(--emerald, #16a34a)" : "var(--danger, #dc2626)",
+                }}
+              >
+                {liveQuote.change >= 0 ? "+" : ""}{inr(liveQuote.change)} ({liveQuote.change_pct}%)
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                <LiveQuote quote={liveQuote} />
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+                Prev close {inr(close)} · {bar?.date || "—"}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Close, {bar?.date || "—"}</div>
+          )}
         </div>
       </div>
 

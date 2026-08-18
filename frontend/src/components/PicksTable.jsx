@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import LiveQuote from "./LiveQuote";
 import {
   Change, ScoreBadge, SignalBadge, StockCell, EmptyState, inr,
 } from "./ui/Primitives";
@@ -35,18 +36,34 @@ const TABS = [
 const SORTS = [
   { key: "rank", label: "Rank", get: (s) => s.rank, dir: 1 },
   { key: "score", label: "Score", get: (s) => s.overall_score, dir: -1 },
-  { key: "change", label: "Change", get: (s) => (s.latest_price ?? 0) - (s.reference_close ?? 0), dir: -1 },
+  { key: "change", label: "Change", get: (s) => (s.live_price ?? 0) - (s.reference_close ?? 0), dir: -1 },
   { key: "rr", label: "Risk/Reward", get: (s) => s.upside_pct / Math.abs(s.downside_pct || 1), dir: -1 },
 ];
 
 function changePct(s) {
   // Session change against the close the levels were drawn from. Null when the
   // live price is unavailable, never zero-filled.
-  if (s.latest_price == null || !s.reference_close) return null;
-  return ((s.latest_price - s.reference_close) / s.reference_close) * 100;
+  if (s.live_price == null || !s.reference_close) return null;
+  return ((s.live_price - s.reference_close) / s.reference_close) * 100;
 }
 
-export default function PicksTable({ signals, watchlist = [] }) {
+/**
+ * Where the live price sits against the frozen entry zone. Mirrors
+ * trigger_state() in backend/app/services/daily_signals.py, recomputed here
+ * because the server's value is a snapshot from request time while the price
+ * keeps moving underneath it between fast-quote ticks.
+ *
+ * The zone is NOT recomputed: entry_low/entry_high are the frozen 09:15 call
+ * and are rendered exactly as published. Only the price moves.
+ */
+function triggerState(price, entryLow, entryHigh) {
+  if (price == null) return "UNKNOWN";
+  if (price < entryLow) return "BELOW_ZONE";
+  if (price > entryHigh) return "ABOVE_ZONE";
+  return "IN_ZONE";
+}
+
+export default function PicksTable({ signals, watchlist = [], quotes = {} }) {
   const [tab, setTab] = useState("all");
   const [sort, setSort] = useState("rank");
   const [sector, setSector] = useState("");
@@ -58,9 +75,30 @@ export default function PicksTable({ signals, watchlist = [] }) {
   );
   const watched = useMemo(() => new Set(watchlist.map((w) => w.symbol)), [watchlist]);
 
+  // Overlay the fast tier before anything filters or sorts, so the tabs, the
+  // sort order and the rendered rows all agree on one price. `trigger_state` is
+  // intentionally overwritten: the API's copy was computed against whatever
+  // price existed at request time and goes stale within seconds.
+  const enriched = useMemo(
+    () =>
+      signals.map((s) => {
+        const quote = quotes[s.symbol] || null;
+        // reference_close is never a fallback here — it is the frozen basis the
+        // levels were drawn from, not a stand-in for a live price.
+        const livePrice = quote?.price ?? s.latest_price ?? null;
+        return {
+          ...s,
+          live_price: livePrice,
+          live_quote: quote,
+          trigger_state: triggerState(livePrice, s.entry_low, s.entry_high),
+        };
+      }),
+    [signals, quotes]
+  );
+
   const rows = useMemo(() => {
     const t = TABS.find((x) => x.key === tab);
-    let out = signals.filter((s) => (t?.fn ? t.fn(s) : watched.has(s.symbol)));
+    let out = enriched.filter((s) => (t?.fn ? t.fn(s) : watched.has(s.symbol)));
     if (sector) out = out.filter((s) => s.sector === sector);
     const sorter = SORTS.find((x) => x.key === sort);
     if (sorter) {
@@ -71,15 +109,15 @@ export default function PicksTable({ signals, watchlist = [] }) {
       });
     }
     return out;
-  }, [signals, tab, sort, sector, watched]);
+  }, [enriched, tab, sort, sector, watched]);
 
   const counts = useMemo(() => {
     const c = {};
     for (const t of TABS) {
-      c[t.key] = signals.filter((s) => (t.fn ? t.fn(s) : watched.has(s.symbol))).length;
+      c[t.key] = enriched.filter((s) => (t.fn ? t.fn(s) : watched.has(s.symbol))).length;
     }
     return c;
-  }, [signals, watched]);
+  }, [enriched, watched]);
 
   return (
     <>
@@ -166,7 +204,10 @@ export default function PicksTable({ signals, watchlist = [] }) {
                 <tr>
                   <th style={{ width: 40 }}>#</th>
                   <th>Stock</th>
-                  <th className="r">Price</th>
+                  <th className="r">
+                    Live price
+                    <div style={{ fontSize: 10, fontWeight: "normal", color: "var(--text-3)" }}>Signal ref below</div>
+                  </th>
                   <th className="r">Change</th>
                   <th className="r">Score</th>
                   <th className="r col-hide-lg">
@@ -187,7 +228,17 @@ export default function PicksTable({ signals, watchlist = [] }) {
                     <tr key={s.symbol}>
                       <td><span className="rank-cell num">{s.rank}</span></td>
                       <td><StockCell symbol={s.symbol} company={s.company_name} sector={s.sector} /></td>
-                      <td className="r price num">{inr(s.latest_price ?? s.reference_close)}</td>
+                      <td className="r">
+                        {/* Live price and the frozen signal reference are shown
+                            as two separate numbers on purpose — the reference is
+                            what the levels were drawn from and must stay legible
+                            even when the live price has run away from it. */}
+                        <div className="price num">{s.live_price == null ? "—" : inr(s.live_price)}</div>
+                        <div className="num" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                          ref {inr(s.reference_close)}
+                        </div>
+                        <LiveQuote quote={s.live_quote} />
+                      </td>
                       <td className="r"><Change value={chg} /></td>
                       <td className="r"><ScoreBadge value={s.overall_score} /></td>
                       <td className="r num col-hide-lg" style={{ whiteSpace: "nowrap" }}>
@@ -218,8 +269,9 @@ export default function PicksTable({ signals, watchlist = [] }) {
                     <span className="sym">{s.symbol}</span>
                   </div>
                   <div className="card-r">
-                    <span className="price num">{inr(s.latest_price ?? s.reference_close)}</span>
+                    <span className="price num">{s.live_price == null ? "—" : inr(s.live_price)}</span>
                     <Change value={chg} />
+                    <LiveQuote quote={s.live_quote} />
                   </div>
                     <div className="card-l2" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
                       <div>
