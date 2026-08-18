@@ -34,10 +34,8 @@ services:
       - key: TZ
         value: Asia/Kolkata
 
-  - type: web
+  - type: static
     name: equitylens-frontend
-    runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
