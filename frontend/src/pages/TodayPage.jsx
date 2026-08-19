@@ -65,6 +65,12 @@ export default function TodayPage() {
             {data.regime === "bear" && " NIFTY is below its 200-day average, so v1 calls for 25% of normal position size."}
             {" "}Analysis only — not investment advice.
           </p>
+          <p style={{ fontSize: 12, color: "var(--text-3)", marginTop: 6, maxWidth: 760, lineHeight: 1.6 }}>
+            <strong>12 months is how far back the ranking looks, not how long a pick is meant to be held.</strong>{" "}
+            The screen re-ranks monthly and exits into whatever ranks higher, so a position rarely runs anywhere
+            near that long — in backtesting, the typical holding period before rebalance, stop, or target ran its
+            course was about 7–9 weeks.
+          </p>
         </>
       )}
     </div>
