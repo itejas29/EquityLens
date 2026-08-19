@@ -43,7 +43,7 @@ from app.models.stock import Stock
 import pandas as pd
 
 from app.core.v1_strategy import V1, V1_VERSION
-from app.services.levels import Levels, compute_levels_for_stock
+from app.services.levels import Levels, compute_levels
 from app.services.market_data import fetch_price_history
 from app.services.scoring import StockScore, _map_signal
 
@@ -64,46 +64,51 @@ def _pct(a: float, b: float) -> float:
     return (a - b) / b * 100
 
 
-def _latest_indicator(db: Session, stock_id: int) -> Indicator | None:
-    return (
-        db.query(Indicator)
-        .filter(Indicator.stock_id == stock_id)
-        .order_by(Indicator.date.desc())
-        .first()
-    )
+def _batch_sector_medians(db: Session) -> dict[str, float]:
+    """P/E median per sector, all sectors in one query.
 
-
-def _latest_priced_bar(db: Session, stock_id: int) -> PriceHistory | None:
-    """Most recent bar that actually has a close. A NULL-close bar is skipped
-    rather than treated as missing data for the whole stock — the prior bar is
-    still a valid reference, it is just a day older, and MAX_REFERENCE_AGE_DAYS
-    decides whether that is recent enough to publish against.
+    Was _sector_median_pe(db, sector) called fresh per candidate inside
+    _build_rationale — the same sector's median got recomputed with its own
+    DB round trip for every stock in that sector, on top of the per-stock
+    query pattern already fixed elsewhere in this function. Against Neon this
+    compounded with the other N+1s to make /daily-signals/run take 468s for
+    what should be sub-second work.
     """
-    return (
-        db.query(PriceHistory)
-        .filter(PriceHistory.stock_id == stock_id, PriceHistory.close.isnot(None))
-        .order_by(PriceHistory.date.desc())
-        .first()
-    )
-
-
-def _sector_median_pe(db: Session, sector: str | None) -> float | None:
-    if sector is None:
-        return None
     rows = (
-        db.query(Fundamentals.pe_ratio)
+        db.query(Stock.sector, Fundamentals.pe_ratio)
         .join(Stock, Stock.id == Fundamentals.stock_id)
-        .filter(Stock.sector == sector, Stock.is_active == True, Fundamentals.pe_ratio.isnot(None))  # noqa: E712
+        .filter(Stock.is_active == True, Fundamentals.pe_ratio.isnot(None), Stock.sector.isnot(None))  # noqa: E712
         .all()
     )
-    values = sorted(float(r[0]) for r in rows)
-    if not values:
-        return None
-    mid = len(values) // 2
-    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+    by_sector: dict[str, list[float]] = {}
+    for sector, pe in rows:
+        by_sector.setdefault(sector, []).append(float(pe))
+    medians: dict[str, float] = {}
+    for sector, values in by_sector.items():
+        values.sort()
+        mid = len(values) // 2
+        medians[sector] = values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+    return medians
 
 
-def _build_rationale(db: Session, stock: Stock, ind: Indicator | None, close: float) -> list[dict]:
+def _batch_latest_fundamentals(db: Session, stock_ids: list[int]) -> dict[int, Fundamentals]:
+    """Latest Fundamentals row per stock_id, one query instead of one per stock."""
+    rows = (
+        db.query(Fundamentals)
+        .filter(Fundamentals.stock_id.in_(stock_ids))
+        .order_by(Fundamentals.stock_id, Fundamentals.as_of_date)
+        .all()
+    )
+    latest: dict[int, Fundamentals] = {}
+    for f in rows:
+        latest[f.stock_id] = f  # last write per stock_id wins = latest as_of_date
+    return latest
+
+
+def _build_rationale(
+    stock: Stock, ind: Indicator | None, close: float,
+    fund: Fundamentals | None, sector_medians: dict[str, float],
+) -> list[dict]:
     """Plain-English clauses, each derived from a value that actually fed the
     score. `kind` is "support" for a reason the stock ranked well and "caution"
     for a genuine negative — cautions are never suppressed, since a shortlist
@@ -175,15 +180,9 @@ def _build_rationale(db: Session, stock: Stock, ind: Indicator | None, close: fl
             out.append({"kind": "caution", "label": "Risk",
                         "text": f"Has fallen {abs(mdd) * 100:.1f}% peak-to-trough over the past year."})
 
-    fund = (
-        db.query(Fundamentals)
-        .filter(Fundamentals.stock_id == stock.id)
-        .order_by(Fundamentals.as_of_date.desc())
-        .first()
-    )
     if fund is not None and fund.pe_ratio is not None:
         pe = float(fund.pe_ratio)
-        median_pe = _sector_median_pe(db, stock.sector)
+        median_pe = sector_medians.get(stock.sector) if stock.sector else None
         if median_pe is not None and median_pe > 0:
             if pe < median_pe:
                 out.append({"kind": "support", "label": "Valuation",
@@ -241,16 +240,28 @@ def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dic
     Identical construction to app/services/backtest_scoring.py so a signal
     published in production matches what the backtest would have selected.
     """
+    # One query for the whole universe, not one per stock. Against local
+    # Postgres the per-stock loop was invisible (sub-millisecond round trips);
+    # against Neon (or any remote DB) each of the ~500 round trips costs real
+    # network latency, and 500 of them serially is minutes, not seconds.
+    # Confirmed live: this made /daily-signals/run hang past a 2-minute
+    # timeout on the deployed backend, and is almost certainly why the 09:15
+    # scheduler loop never published a single signal against Neon either —
+    # every call to this function pays the same cost.
+    rows = (
+        db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.close)
+        .filter(PriceHistory.stock_id.in_(stock_ids), PriceHistory.date <= as_of,
+                PriceHistory.close.isnot(None))
+        .order_by(PriceHistory.stock_id, PriceHistory.date)
+        .all()
+    )
+    closes_by_stock: dict[int, list[float]] = {}
+    for stock_id, _date, close in rows:
+        closes_by_stock.setdefault(stock_id, []).append(float(close))
+
     raw: dict[int, float] = {}
     for stock_id in stock_ids:
-        rows = (
-            db.query(PriceHistory.close)
-            .filter(PriceHistory.stock_id == stock_id, PriceHistory.date <= as_of,
-                    PriceHistory.close.isnot(None))
-            .order_by(PriceHistory.date)
-            .all()
-        )
-        closes = [float(r[0]) for r in rows]
+        closes = closes_by_stock.get(stock_id, [])
         if len(closes) < V1.momentum_long_days + 1:
             continue
         last = closes[-1]
@@ -284,6 +295,51 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
         logger.warning("No momentum scores computable as of %s", as_of)
         return []
 
+    # MIN_OVERALL_SCORE is a percentile cut, so this is routinely ~40% of the
+    # universe (~200 stocks) — narrow to that set BEFORE the per-stock work
+    # below, so the batched queries that replace it stay proportional to what
+    # is actually needed rather than re-fetching all 500.
+    passing_ids = [
+        stock_id for stock_id, mom_score in momentum.items() if mom_score >= MIN_OVERALL_SCORE
+    ]
+
+    # Batched OHLC for every passing stock in one query, not one round trip
+    # each. Same fix as _momentum_scores and for the same reason: against a
+    # remote DB (Neon), ~200 sequential round trips is the difference between
+    # this running in under a second and it hanging for minutes — this is
+    # what previously called _latest_priced_bar() and compute_levels_for_stock()
+    # per stock inside this loop.
+    ohlc_rows = (
+        db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.open,
+                  PriceHistory.high, PriceHistory.low, PriceHistory.close)
+        .filter(PriceHistory.stock_id.in_(passing_ids))
+        .order_by(PriceHistory.stock_id, PriceHistory.date)
+        .all()
+    )
+    ohlc_by_stock: dict[int, list[tuple]] = {}
+    for stock_id, date_, open_, high, low, close in ohlc_rows:
+        ohlc_by_stock.setdefault(stock_id, []).append((date_, open_, high, low, close))
+
+    # Same batching for the latest indicator row per stock (was _latest_indicator
+    # per stock inside the loop).
+    indicator_rows = (
+        db.query(Indicator)
+        .filter(Indicator.stock_id.in_(passing_ids))
+        .order_by(Indicator.stock_id, Indicator.date)
+        .all()
+    )
+    latest_indicator_by_stock: dict[int, Indicator] = {}
+    for ind in indicator_rows:
+        latest_indicator_by_stock[ind.stock_id] = ind  # last write per stock_id wins = latest date
+
+    # Batched fundamentals + sector medians for the rationale text, same
+    # reasoning as above — this pair was the last of four N+1 patterns in this
+    # function and, on its own, accounted for most of the 468s this took
+    # against Neon before it was fixed (a fresh per-candidate DB round trip
+    # for its own P/E, plus a full sector re-scan for the median, every time).
+    fundamentals_by_stock = _batch_latest_fundamentals(db, passing_ids)
+    sector_medians = _batch_sector_medians(db)
+
     candidates: list[Candidate] = []
     for stock_id, mom_score in sorted(momentum.items(), key=lambda kv: kv[1], reverse=True):
         if mom_score < MIN_OVERALL_SCORE:
@@ -292,21 +348,30 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
         if stock is None:
             continue
 
-        bar = _latest_priced_bar(db, stock_id)
-        if bar is None:
+        rows = ohlc_by_stock.get(stock_id)
+        if not rows:
             continue
-        age = (as_of - bar.date).days
+        # Most recent bar that actually has a close, matching the old
+        # per-stock query's WHERE close IS NOT NULL — a NULL-close bar (e.g. a
+        # halt day) is skipped in favour of the prior one, not treated as
+        # "this stock has no data", so rows[-1] alone is not equivalent here.
+        priced = next((r for r in reversed(rows) if r[4] is not None), None)
+        if priced is None:
+            continue
+        bar_date, _o, _h, _l, bar_close = priced
+        age = (as_of - bar_date).days
         if age > MAX_REFERENCE_AGE_DAYS:
             logger.info("Skipping %s — most recent close is %d days old", stock.symbol, age)
             continue
 
         # Frozen v1 exit geometry: 4 ATR, support stop OFF.
-        levels = compute_levels_for_stock(db, stock_id, V1)
+        ohlc_df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close"])
+        levels = compute_levels(ohlc_df, V1)
         if levels is None:
             logger.info("Skipping %s — levels not computable", stock.symbol)
             continue
 
-        close = float(bar.close)
+        close = float(bar_close)
         score = StockScore(
             stock_id=stock_id,
             symbol=stock.symbol,
@@ -321,8 +386,11 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
         candidates.append(
             Candidate(
                 score=score, stock=stock, levels=levels,
-                reference_close=close, reference_date=bar.date,
-                rationale=_build_rationale(db, stock, _latest_indicator(db, stock_id), close),
+                reference_close=close, reference_date=bar_date,
+                rationale=_build_rationale(
+                    stock, latest_indicator_by_stock.get(stock_id), close,
+                    fundamentals_by_stock.get(stock_id), sector_medians,
+                ),
             )
         )
 
