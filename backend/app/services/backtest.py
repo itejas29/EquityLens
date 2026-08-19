@@ -149,10 +149,15 @@ def _select_new_entries(
     min_score = p.min_score
     max_allocation_per_stock = current_equity * p.max_allocation_pct
 
+    # `snap.trend_ok` is the Phase 17 recent-trend entry gate. It sits here and
+    # nowhere else on purpose: this is the only place a NEW position is opened,
+    # so gating here cannot reorder the ranking, cannot force an exit, and
+    # cannot affect a stock already held. Defaults True when the gate is off.
     candidates = [
         snap
         for sid, snap in snapshot.items()
-        if sid not in held_ids and snap.overall_score is not None and snap.overall_score >= min_score and snap.levels is not None
+        if sid not in held_ids and snap.overall_score is not None and snap.overall_score >= min_score
+        and snap.levels is not None and snap.trend_ok
     ]
     candidates.sort(key=lambda s: s.overall_score, reverse=True)
 

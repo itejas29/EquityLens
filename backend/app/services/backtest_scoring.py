@@ -48,6 +48,11 @@ class PointInTimeSnapshot:
     # Carried for inverse-volatility position sizing (Phase 15). Annualised
     # realized vol, same series the risk sub-score percentile-ranks.
     volatility: float | None = None
+    # Phase 17 recent-trend entry gate. True when the gate is off (the default)
+    # so existing behaviour is unchanged. False means "eligible on rank, but its
+    # recent trend contradicts that rank" — checked ONLY when opening a new
+    # position, never when ranking or when deciding to hold.
+    trend_ok: bool = True
 
 
 def _liquidity(price_df: pd.DataFrame) -> float | None:
@@ -176,6 +181,27 @@ def compute_point_in_time_universe(
             ser = pd.Series(raw_mom).rank(pct=True) * 100
             momentum_rank = ser.to_dict()
 
+    # --- recent-trend entry gate (Phase 17) ---------------------------
+    # Computed from the same bounded_frames the ranking uses, so it is
+    # point-in-time by construction and cannot see past `as_of`.
+    trend_gate: dict[int, bool] = {}
+    trend_days = getattr(params, "trend_confirm_days", 0) if params is not None else 0
+    if trend_days > 0:
+        min_ret = getattr(params, "trend_confirm_min_return", 0.0)
+        for stock_id in raw:
+            if stock_id not in bounded_frames:
+                continue
+            closes = bounded_frames[stock_id]["close"].astype(float).dropna()
+            # Not enough history to judge the recent trend: leave the gate open
+            # rather than silently excluding the stock, so a data gap never
+            # masquerades as a trend signal.
+            if len(closes) < trend_days + 1:
+                continue
+            base = closes.iloc[-(trend_days + 1)]
+            if base <= 0:
+                continue
+            trend_gate[stock_id] = bool((closes.iloc[-1] / base - 1) >= min_ret)
+
     universe_df = pd.DataFrame.from_dict(raw, orient="index")
 
     results: dict[int, PointInTimeSnapshot] = {}
@@ -206,6 +232,7 @@ def compute_point_in_time_universe(
             overall = _composite({"technical": technical_score, "risk": risk_score}, BACKTEST_COMPOSITE_WEIGHTS)
 
         results[stock_id] = PointInTimeSnapshot(
+            trend_ok=trend_gate.get(stock_id, True),
             stock_id=stock_id,
             technical_score=technical_score,
             risk_score=risk_score,

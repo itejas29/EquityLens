@@ -120,6 +120,27 @@ class StrategyParams:
     # active stocks. Uses the existing liquidity methodology unchanged.
     universe_top_n: int | None = None
 
+    # --- Recent-trend entry gate (Phase 17) ---
+    #
+    # The gap this targets: a 12m-1m momentum score is a whole-year statistic,
+    # so a stock that ran early in the window and has since rolled over can
+    # still rank top-8. The monthly re-rank eventually drops it, but "eventually"
+    # is up to a month, and in the meantime the shortlist can publish a name
+    # that has been falling for days.
+    #
+    # This is an ENTRY GATE, not a ranking input — deliberately. Phase 14
+    # measured the technical+fundamental composite as inverted at short
+    # horizons (5-day decile monotonicity -0.918), so technicals must not be
+    # blended into the score. Gating is a different mechanism: it never
+    # reorders anything, it only refuses to open a NEW position in a name whose
+    # recent trend contradicts its momentum rank. Held positions are untouched.
+    #
+    # 0 = off (default, so every pre-Phase-17 result stays reproducible).
+    trend_confirm_days: int = 0
+    # Minimum trailing return over that window for a new entry to be allowed.
+    # 0.0 = "must not be falling"; a negative value tolerates a mild pullback.
+    trend_confirm_min_return: float = 0.0
+
     # --- Scoring blend used by the backtest (technical/risk renormalised) ---
     technical_weight: float = 0.6
     risk_weight: float = 0.4
@@ -147,6 +168,7 @@ class StrategyParams:
             f"/min{self.min_score:g}"
             + (f"/{self.ranking_engine}" if self.ranking_engine != "composite" else "")
             + (f"/{self.sizing_method}" if self.sizing_method != "atr_risk" else "")
+            + (f"/trend{self.trend_confirm_days}d" if self.trend_confirm_days > 0 else "")
             + (
                 f"/bear{self.bear_exposure:.0%}/re-{self.reentry_rule}"
                 if self.use_regime_filter
