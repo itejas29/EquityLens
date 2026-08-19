@@ -69,18 +69,27 @@ def record_paper_snapshot(db: Session, account_id: int, date: date_type) -> Pape
         # First day
         daily_return = cumulative_return
         
-    snapshot = PaperEquitySnapshot(
-        account_id=account.id,
-        date=date,
-        cash=summary.account.cash,
-        portfolio_value=summary.market_value,
-        total_equity=summary.equity,
-        daily_return=round(daily_return, 4),
-        cumulative_return=round(cumulative_return, 4),
-        nifty_return=round(nifty_return, 4) if nifty_return is not None else None,
-        drawdown=summary.current_drawdown_pct,
+    # Upsert rather than append. The 20:00 job can legitimately run twice for
+    # one date (a retry after a partial fetch, or a manual catch-up alongside
+    # the scheduled run), and a second row for the same session would put a
+    # duplicate point on the equity curve rather than correcting the first.
+    # The DB enforces this too — uq_paper_equity_snapshot_account_date.
+    snapshot = (
+        db.query(PaperEquitySnapshot)
+        .filter(PaperEquitySnapshot.account_id == account.id, PaperEquitySnapshot.date == date)
+        .first()
     )
-    db.add(snapshot)
+    if snapshot is None:
+        snapshot = PaperEquitySnapshot(account_id=account.id, date=date)
+        db.add(snapshot)
+
+    snapshot.cash = summary.account.cash
+    snapshot.portfolio_value = summary.market_value
+    snapshot.total_equity = summary.equity
+    snapshot.daily_return = round(daily_return, 4)
+    snapshot.cumulative_return = round(cumulative_return, 4)
+    snapshot.nifty_return = round(nifty_return, 4) if nifty_return is not None else None
+    snapshot.drawdown = summary.current_drawdown_pct
     return snapshot
 
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Date, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import DateTime, Date, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -46,6 +46,12 @@ class PaperEquitySnapshot(Base):
     """Daily snapshot of the paper trading portfolio to construct equity curves."""
 
     __tablename__ = "paper_equity_snapshots"
+    # One row per account per session. Without this a re-run of the 20:00
+    # incremental for the same date silently appends a second point to the
+    # equity curve instead of correcting the first.
+    __table_args__ = (
+        UniqueConstraint("account_id", "date", name="uq_paper_equity_snapshot_account_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), nullable=False)
