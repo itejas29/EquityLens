@@ -14,6 +14,7 @@ import StockSearch from "./StockSearch";
 const LINKS = [
   { to: "/home", label: "Home" },
   { to: "/discover", label: "Discover" },
+  { to: "/recommendations", label: "Recommendations" },
   { to: "/today", label: "Today's Picks" },
   { to: "/stocks", label: "Stocks" },
   { to: "/sectors", label: "Sectors" },
