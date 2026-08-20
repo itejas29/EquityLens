@@ -64,6 +64,17 @@ def _pct(a: float, b: float) -> float:
     return (a - b) / b * 100
 
 
+def _calendar_days_for(trading_days: int) -> int:
+    """Calendar-day span that comfortably contains `trading_days` sessions.
+
+    NSE trades ~250 days a year, so ~1.45 calendar days per session; 1.6x plus
+    a fixed cushion keeps a long holiday stretch from truncating the window.
+    Used only to bound queries — over-fetching a little is harmless, under-
+    fetching would silently change the computation.
+    """
+    return int(trading_days * 1.6) + 30
+
+
 def _batch_sector_medians(db: Session) -> dict[str, float]:
     """P/E median per sector, all sectors in one query.
 
@@ -96,13 +107,11 @@ def _batch_latest_fundamentals(db: Session, stock_ids: list[int]) -> dict[int, F
     rows = (
         db.query(Fundamentals)
         .filter(Fundamentals.stock_id.in_(stock_ids))
-        .order_by(Fundamentals.stock_id, Fundamentals.as_of_date)
+        .distinct(Fundamentals.stock_id)
+        .order_by(Fundamentals.stock_id, Fundamentals.as_of_date.desc())
         .all()
     )
-    latest: dict[int, Fundamentals] = {}
-    for f in rows:
-        latest[f.stock_id] = f  # last write per stock_id wins = latest as_of_date
-    return latest
+    return {f.stock_id: f for f in rows}
 
 
 def _build_rationale(
@@ -248,9 +257,17 @@ def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dic
     # timeout on the deployed backend, and is almost certainly why the 09:15
     # scheduler loop never published a single signal against Neon either —
     # every call to this function pays the same cost.
+    # Bounded to the window the calculation actually reads. Batching the query
+    # (above) fixed the round-trip problem but pulled every stock's ENTIRE
+    # history into memory at once — ~1900 bars x ~500 stocks — which is what
+    # pushed the 512MB Render instance past its memory limit and triggered
+    # restarts. momentum_long_days bars is all that is indexed into, so the
+    # rest was loaded and discarded.
+    lookback_start = as_of - timedelta(days=_calendar_days_for(V1.momentum_long_days))
     rows = (
         db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.close)
         .filter(PriceHistory.stock_id.in_(stock_ids), PriceHistory.date <= as_of,
+                PriceHistory.date >= lookback_start,
                 PriceHistory.close.isnot(None))
         .order_by(PriceHistory.stock_id, PriceHistory.date)
         .all()
@@ -309,10 +326,18 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     # this running in under a second and it hanging for minutes — this is
     # what previously called _latest_priced_bar() and compute_levels_for_stock()
     # per stock inside this loop.
+    # Same bounding as the momentum query, and for the same memory reason. The
+    # only consumer is compute_levels(), whose longest input is a 14-period
+    # Wilder ATR and a 20-day support lookback; a 252-trading-day window is
+    # far past the point where the recursive ATR has converged (the weight of
+    # a bar N periods back decays as (13/14)^N, so ~1e-4 by 120 bars).
+    lookback_start = as_of - timedelta(days=_calendar_days_for(V1.momentum_long_days))
     ohlc_rows = (
         db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.open,
                   PriceHistory.high, PriceHistory.low, PriceHistory.close)
-        .filter(PriceHistory.stock_id.in_(passing_ids))
+        .filter(PriceHistory.stock_id.in_(passing_ids),
+                PriceHistory.date <= as_of,
+                PriceHistory.date >= lookback_start)
         .order_by(PriceHistory.stock_id, PriceHistory.date)
         .all()
     )
@@ -322,15 +347,18 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
 
     # Same batching for the latest indicator row per stock (was _latest_indicator
     # per stock inside the loop).
+    # DISTINCT ON returns exactly one row per stock — the latest. The previous
+    # version loaded every indicator row for every candidate (~1900 each, as
+    # full ORM objects) and then kept only the last one per stock, which was by
+    # far the largest of the three memory offenders here.
     indicator_rows = (
         db.query(Indicator)
         .filter(Indicator.stock_id.in_(passing_ids))
-        .order_by(Indicator.stock_id, Indicator.date)
+        .distinct(Indicator.stock_id)
+        .order_by(Indicator.stock_id, Indicator.date.desc())
         .all()
     )
-    latest_indicator_by_stock: dict[int, Indicator] = {}
-    for ind in indicator_rows:
-        latest_indicator_by_stock[ind.stock_id] = ind  # last write per stock_id wins = latest date
+    latest_indicator_by_stock: dict[int, Indicator] = {ind.stock_id: ind for ind in indicator_rows}
 
     # Batched fundamentals + sector medians for the rationale text, same
     # reasoning as above — this pair was the last of four N+1 patterns in this
@@ -363,6 +391,27 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
         if age > MAX_REFERENCE_AGE_DAYS:
             logger.info("Skipping %s — most recent close is %d days old", stock.symbol, age)
             continue
+
+        # Recent-trend entry gate (Phase 17, promoted in v1.1). A 12m-1m score
+        # is a whole-year statistic, so a name that ran early and has since
+        # rolled over can still rank top-8 until the next monthly re-rank drops
+        # it. This declines to PUBLISH such a name; it does not reorder the
+        # ranking and has no bearing on anything already held. Mirrors the gate
+        # validated in backtest_scoring.py — same window, same >= comparison.
+        if V1.trend_confirm_days > 0:
+            closes = [r[4] for r in rows if r[4] is not None]
+            # Too little history to judge the trend: leave the gate open rather
+            # than let a data gap masquerade as a trend signal.
+            if len(closes) > V1.trend_confirm_days:
+                base_close = float(closes[-(V1.trend_confirm_days + 1)])
+                if base_close > 0:
+                    trailing = float(closes[-1]) / base_close - 1
+                    if trailing < V1.trend_confirm_min_return:
+                        logger.info(
+                            "Skipping %s — %dd trailing return %.2f%% below gate",
+                            stock.symbol, V1.trend_confirm_days, trailing * 100,
+                        )
+                        continue
 
         # Frozen v1 exit geometry: 4 ATR, support stop OFF.
         ohlc_df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close"])
