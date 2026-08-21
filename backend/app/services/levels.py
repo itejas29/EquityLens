@@ -31,9 +31,9 @@ class Levels:
     risk_reward: float
     stop_method: str  # "atr" or "support"
     # Carried explicitly rather than left to be inferred from the zone width.
-    # The zone is [close - 0.5*ATR, close], so its width is HALF an ATR — code
-    # that back-computed `atr = entry_high - entry_low` was silently off by 2x
-    # and reported every ATR-relative distance at double its true value.
+    # The zone is now symmetrical: [close - 0.5*ATR, close + 0.5*ATR], so its 
+    # width is a full ATR. Code that back-computes ATR from the zone width is 
+    # fragile, so we carry it explicitly.
     atr: float
 
 
@@ -100,7 +100,8 @@ def compute_levels(price_df: pd.DataFrame, params: "StrategyParams | None" = Non
     entry = float(close.iloc[-1])
     latest_atr = float(latest_atr)
     entry_low = entry - params.entry_zone_atr_multiplier * latest_atr
-    entry_high = entry
+    # Provide an upper buffer equal to the lower buffer so the zone is symmetrical
+    entry_high = entry + params.entry_zone_atr_multiplier * latest_atr
 
     atr_stop = entry - params.atr_stop_multiplier * latest_atr
 
@@ -161,9 +162,10 @@ def levels_from_atr(entry: float, latest_atr: float, support_low: float | None, 
         return None
 
     risk_per_share = entry - stop_loss
+    entry_high = entry + params.entry_zone_atr_multiplier * latest_atr
     return Levels(
         entry_low=round(entry_low, 2),
-        entry_high=round(entry, 2),
+        entry_high=round(entry_high, 2),
         stop_loss=round(stop_loss, 2),
         target_price=round(entry + params.risk_reward_ratio * risk_per_share, 2),
         risk_reward=params.risk_reward_ratio,
