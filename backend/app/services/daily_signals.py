@@ -35,6 +35,7 @@ from app.core.daily_signals_config import (
     RSI_STRONG_LOW,
     VOLUME_SURGE_RATIO,
 )
+from app.core.memory_hygiene import trim_every
 from app.models.daily_signal import DailySignal
 from app.models.fundamentals import Fundamentals
 from app.models.indicator import Indicator
@@ -369,7 +370,12 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     sector_medians = _batch_sector_medians(db)
 
     candidates: list[Candidate] = []
-    for stock_id, mom_score in sorted(momentum.items(), key=lambda kv: kv[1], reverse=True):
+    for loop_idx, (stock_id, mom_score) in enumerate(
+        sorted(momentum.items(), key=lambda kv: kv[1], reverse=True), start=1
+    ):
+        # Same fragmentation pattern as incremental.py's per-stock loops, and
+        # the same fix — see core/memory_hygiene.py.
+        trim_every(loop_idx, every=50)
         if mom_score < MIN_OVERALL_SCORE:
             continue
         stock = stocks.get(stock_id)

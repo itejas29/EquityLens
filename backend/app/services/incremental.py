@@ -26,6 +26,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.ingestion_status import IngestionStatus
+from app.core.memory_hygiene import trim_every
 from app.core.universe_config import DOWNLOAD_BATCH_SIZE, HISTORY_PERIOD
 from app.models.indicator import Indicator
 from app.models.price_history import PriceHistory
@@ -68,6 +69,17 @@ class IncrementalResult:
         if self.succeeded > 0:
             return "incomplete"
         return "failed"
+
+
+def _indicator_lookback_start(as_of: date_type) -> date_type:
+    """Earliest date compute_indicators() can still read from. Its longest
+    window is ANNUALIZATION_DAYS (252 trading days, for volatility/beta/
+    max_drawdown); 1.6x plus a fixed cushion converts that to calendar days
+    generously, so a holiday stretch never truncates the window. Deliberately
+    matches the sizing already used for the same purpose in daily_signals.py.
+    """
+    from app.services.indicators import ANNUALIZATION_DAYS
+    return as_of - timedelta(days=int(ANNUALIZATION_DAYS * 1.6) + 30)
 
 
 def _get_latest_dates(db: Session, stock_ids: list[int]) -> dict[int, date_type | None]:
@@ -268,8 +280,12 @@ def _process_full_pulls(
                 normalised = _normalise_df(df)
                 bars = upsert_price_history(db, stock.id, normalised)
 
-                # Compute indicators from full stored history
-                price_df = load_price_history_df(db, stock.id)
+                # Bounded to what compute_indicators actually reads (longest
+                # window is ANNUALIZATION_DAYS=252 for volatility/beta/drawdown).
+                # Loading unbounded full history here, once per stock across a
+                # ~500-stock universe, is what pushed a genuine incremental run
+                # to 412MB peak RSS against Render's 512MB limit.
+                price_df = load_price_history_df(db, stock.id, since=_indicator_lookback_start(date_type.today()))
                 if not price_df.empty:
                     upsert_indicators(db, stock.id, compute_indicators(price_df, benchmark_df))
 
@@ -282,6 +298,8 @@ def _process_full_pulls(
                 result.failed += 1
                 result.results.append(SymbolResult(sym, IngestionStatus.PROVIDER_ERROR, error=str(exc)))
                 logger.error("pipeline.incremental.store_failed symbol=%s error=%s", sym, exc)
+
+        trim_every(batch_num, every=1)
 
         logger.info(
             "pipeline.incremental.full_batch batch=%d/%d symbols=%d",
@@ -408,8 +426,8 @@ def _process_incremental_pulls(
                     succeeded_in_batch += 1
                     result.results.append(SymbolResult(sym, IngestionStatus.SUCCESS, bars_added=bars, latest_date=latest))
 
-                # Recompute indicators from full stored history
-                price_df = load_price_history_df(db, stock.id)
+                # Bounded — same reasoning as the full-pull path above.
+                price_df = load_price_history_df(db, stock.id, since=_indicator_lookback_start(end_date))
                 if not price_df.empty:
                     upsert_indicators(db, stock.id, compute_indicators(price_df, benchmark_df))
 
@@ -425,3 +443,5 @@ def _process_incremental_pulls(
             "pipeline.incremental.batch batch=%d/%d symbols=%d succeeded=%d stale=%d failed=%d",
             batch_num, total_batches, len(batch_symbols), succeeded_in_batch, stale_in_batch, failed_in_batch,
         )
+
+        trim_every(batch_num, every=1)

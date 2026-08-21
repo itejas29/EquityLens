@@ -16,7 +16,7 @@ everything.
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -36,6 +36,7 @@ from app.core.universe_config import (
 from app.models.indicator import Indicator
 from app.models.nse_symbol import NseSymbol
 from app.models.stock import Stock
+from app.core.memory_hygiene import trim_every
 from app.services.catalogue import TRADEABLE_SERIES
 from app.services.indicators import compute_indicators, fetch_benchmark_df, load_price_history_df
 from app.services.ingestion import upsert_fundamentals, upsert_indicators, upsert_price_history, upsert_stock
@@ -201,7 +202,13 @@ def _ingest_fundamentals_and_indicators(db: Session, symbols: list[str]) -> list
             upsert_fundamentals(db, stock.id, fundamentals["data"], date.today())
             db.flush()
 
-            price_df = load_price_history_df(db, stock.id)
+            # 433 = 252 trading days (compute_indicators' longest window, for
+            # volatility/beta/max_drawdown) x1.6 calendar-day conversion + a 30-day
+            # cushion for holidays. Unbounded here loaded each stock's entire
+            # history in this loop across the full ~500-stock universe, which is
+            # what measurably pushed a real run to 412MB peak RSS against
+            # Render's 512MB limit (see incremental.py's identical fix).
+            price_df = load_price_history_df(db, stock.id, since=date.today() - timedelta(days=433))
             if not price_df.empty:
                 upsert_indicators(db, stock.id, compute_indicators(price_df, benchmark_df))
             db.commit()
@@ -209,6 +216,7 @@ def _ingest_fundamentals_and_indicators(db: Session, symbols: list[str]) -> list
             db.rollback()
             failed.append((symbol, f"fundamentals/indicators failed: {exc}"))
 
+        trim_every(i, every=50)
         if i % 50 == 0:
             logger.info("  fundamentals+indicators: %d/%d", i, len(symbols))
         time.sleep(FUNDAMENTALS_DELAY_SECONDS)
@@ -245,13 +253,20 @@ def deepen_history(db: Session) -> BuildResult:
         if stock is None:
             continue
         try:
-            price_df = load_price_history_df(db, stock.id)
+            # 433 = 252 trading days (compute_indicators' longest window, for
+            # volatility/beta/max_drawdown) x1.6 calendar-day conversion + a 30-day
+            # cushion for holidays. Unbounded here loaded each stock's entire
+            # history in this loop across the full ~500-stock universe, which is
+            # what measurably pushed a real run to 412MB peak RSS against
+            # Render's 512MB limit (see incremental.py's identical fix).
+            price_df = load_price_history_df(db, stock.id, since=date.today() - timedelta(days=433))
             if not price_df.empty:
                 upsert_indicators(db, stock.id, compute_indicators(price_df, benchmark_df))
             db.commit()
         except Exception as exc:
             db.rollback()
             failures.append((symbol, f"indicator recompute failed: {exc}"))
+        trim_every(i, every=50)
         if i % 100 == 0:
             logger.info("  indicators: %d/%d", i, len(priced))
 

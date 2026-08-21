@@ -1,3 +1,5 @@
+from datetime import date as date_type
+
 import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -158,13 +160,24 @@ def compute_indicators(price_df: pd.DataFrame, benchmark_df: pd.DataFrame | None
     return result
 
 
-def load_price_history_df(db: Session, stock_id: int) -> pd.DataFrame:
-    rows = (
-        db.query(PriceHistory.date, PriceHistory.close, PriceHistory.volume)
-        .filter(PriceHistory.stock_id == stock_id)
-        .order_by(PriceHistory.date)
-        .all()
+def load_price_history_df(
+    db: Session, stock_id: int, since: date_type | None = None
+) -> pd.DataFrame:
+    """`since` bounds the query to a start date. Optional and defaulting to
+    unbounded so single-stock callers (stock detail, onboarding, outlook) are
+    unaffected — the memory cost of one unbounded history is trivial. It
+    exists for callers that loop this over the whole ~500-stock universe
+    (incremental.py, universe.py): loading full history 500 times in one
+    process, rather than once, is what pushed the 512MB Render instance over
+    its limit — confirmed by measuring peak RSS at 412MB for a genuine full
+    incremental run, unbounded, with ~100MB of headroom left on the box.
+    """
+    q = db.query(PriceHistory.date, PriceHistory.close, PriceHistory.volume).filter(
+        PriceHistory.stock_id == stock_id
     )
+    if since is not None:
+        q = q.filter(PriceHistory.date >= since)
+    rows = q.order_by(PriceHistory.date).all()
     return pd.DataFrame(rows, columns=["date", "close", "volume"])
 
 
