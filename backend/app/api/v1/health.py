@@ -12,6 +12,11 @@ from app.models.stock import Stock
 
 router = APIRouter(tags=["health"])
 
+@router.get("/ping")
+def ping() -> dict:
+    """Fast health check for Render that doesn't hit the DB (avoids Neon cold-start timeouts)."""
+    return {"status": "ok"}
+
 
 @router.get("/health")
 def health(db: Session = Depends(get_db)) -> dict:

@@ -15,7 +15,7 @@ services:
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    healthCheckPath: /api/v1/health
+    healthCheckPath: /api/v1/ping
     envVars:
       - key: DATABASE_URL
         sync: false   # Neon connection string — postgres:// or postgresql://, either works
