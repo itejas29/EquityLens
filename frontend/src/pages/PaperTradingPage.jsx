@@ -96,6 +96,7 @@ function OrderTicket({ quotes, onOrderSuccess }) {
   const [qty, setQty] = useState(10);
   const [placing, setPlacing] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [focused, setFocused] = useState(false);
 
   // Read ?buy= query param on mount
   useEffect(() => {
@@ -188,11 +189,20 @@ function OrderTicket({ quotes, onOrderSuccess }) {
           </label>
           <input
             id="pt-sym"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            value={symbol}
+            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setMsg(null); }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(e) => e.key === "Enter" && handleOrder()}
+            placeholder="e.g. HINDALCO"
             style={{
               width: "100%",
               height: 44,
               padding: "0 14px",
-              border: `1.5px solid ${sym && livePrice ? accentColor : "var(--line)"}`,
+              border: `1.5px solid ${focused ? accentColor : (sym && livePrice ? accentColor : "var(--line)")}`,
               borderRadius: "var(--r)",
               background: "var(--surface-2)",
               color: "var(--text-1)",
@@ -202,14 +212,11 @@ function OrderTicket({ quotes, onOrderSuccess }) {
               letterSpacing: "0.06em",
               outline: "none",
               transition: "border-color 0.15s",
+              boxSizing: "border-box",
+              WebkitAppearance: "none",
+              MozAppearance: "none",
+              appearance: "none",
             }}
-            value={symbol}
-            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setMsg(null); }}
-            placeholder="e.g. HINDALCO"
-            autoComplete="off"
-            onKeyDown={(e) => e.key === "Enter" && handleOrder()}
-            onFocus={(e) => e.target.style.borderColor = accentColor}
-            onBlur={(e) => e.target.style.borderColor = sym && livePrice ? accentColor : "var(--line)"}
           />
           {/* Live price row */}
           {livePrice != null ? (
@@ -840,75 +847,61 @@ export default function PaperTradingPage() {
   const holdings = acct.holdings || [];
 
   return (
-    <div className="page">
-      {/* ── Page title ── */}
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>
-          Paper Trading
-        </h1>
-        <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>
-          Virtual money against real prices — same transaction-cost model as the backtest
-        </p>
-      </div>
+    <div className="page" style={{
+      display: "grid",
+      gridTemplateColumns: "minmax(0,1fr) 340px",
+      gap: 28,
+      alignItems: "start",
+    }}>
 
-      {/* ── Portfolio stat cards ── */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-        gap: 12,
-        marginBottom: 24,
-      }}>
-        <StatCard
-          label="Portfolio Value"
-          value={inr(acct.equity)}
-          accent="neutral"
-          icon="◈"
-        />
-        <StatCard
-          label="Available Cash"
-          value={inr(acct.cash)}
-          accent="neutral"
-          icon="◎"
-        />
-        <StatCard
-          label="Invested"
-          value={inr(acct.market_value ?? 0)}
-          accent="neutral"
-          icon="▣"
-        />
-        <StatCard
-          label="Unrealised P&L"
-          value={inr(acct.unrealized_pnl)}
-          tone={acct.unrealized_pnl > 0 ? "up" : acct.unrealized_pnl < 0 ? "down" : ""}
-          accent={acct.unrealized_pnl > 0 ? "up" : acct.unrealized_pnl < 0 ? "down" : "neutral"}
-          icon={acct.unrealized_pnl > 0 ? "▲" : acct.unrealized_pnl < 0 ? "▼" : "—"}
-        />
-        <StatCard
-          label="Realised P&L"
-          value={inr(acct.realized_pnl)}
-          tone={acct.realized_pnl > 0 ? "up" : acct.realized_pnl < 0 ? "down" : ""}
-          accent={acct.realized_pnl > 0 ? "up" : acct.realized_pnl < 0 ? "down" : "neutral"}
-          icon={acct.realized_pnl > 0 ? "▲" : acct.realized_pnl < 0 ? "▼" : "—"}
-        />
-        <StatCard
-          label="Drawdown"
-          value={acct.current_drawdown_pct != null ? acct.current_drawdown_pct.toFixed(1) + "%" : "0.0%"}
-          tone={acct.current_drawdown_pct < 0 ? "down" : ""}
-          accent={acct.current_drawdown_pct < 0 ? "warn" : "neutral"}
-          icon="⬎"
-        />
-      </div>
+      {/* ═══ LEFT COLUMN — all scrollable content ═══ */}
+      <div style={{ minWidth: 0 }}>
 
-      {/* ── Main grid: Order ticket (fixed sidebar) + Holdings ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "340px minmax(0,1fr)", gap: 20, marginBottom: 24, alignItems: "start" }}>
-        {/* Order ticket — fixed width sidebar like Groww/Zerodha */}
-        <div style={{ position: "sticky", top: 72 }}>
-          <SectionHeader title="Order Ticket" />
-          <OrderTicket quotes={quotes} onOrderSuccess={load} />
+        {/* Page title */}
+        <div style={{ marginBottom: 22 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-1)", marginBottom: 4 }}>
+            Paper Trading
+          </h1>
+          <p style={{ fontSize: 13, color: "var(--text-3)", margin: 0 }}>
+            Virtual money against real prices — same transaction-cost model as the backtest
+          </p>
+        </div>
+
+        {/* Portfolio stat cards */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+          gap: 12,
+          marginBottom: 28,
+        }}>
+          <StatCard label="Portfolio Value" value={inr(acct.equity)} accent="neutral" icon="◈" />
+          <StatCard label="Available Cash" value={inr(acct.cash)} accent="neutral" icon="◎" />
+          <StatCard label="Invested" value={inr(acct.market_value ?? 0)} accent="neutral" icon="▣" />
+          <StatCard
+            label="Unrealised P&L"
+            value={inr(acct.unrealized_pnl)}
+            tone={acct.unrealized_pnl > 0 ? "up" : acct.unrealized_pnl < 0 ? "down" : ""}
+            accent={acct.unrealized_pnl > 0 ? "up" : acct.unrealized_pnl < 0 ? "down" : "neutral"}
+            icon={acct.unrealized_pnl > 0 ? "▲" : acct.unrealized_pnl < 0 ? "▼" : "—"}
+          />
+          <StatCard
+            label="Realised P&L"
+            value={inr(acct.realized_pnl)}
+            tone={acct.realized_pnl > 0 ? "up" : acct.realized_pnl < 0 ? "down" : ""}
+            accent={acct.realized_pnl > 0 ? "up" : acct.realized_pnl < 0 ? "down" : "neutral"}
+            icon={acct.realized_pnl > 0 ? "▲" : acct.realized_pnl < 0 ? "▼" : "—"}
+          />
+          <StatCard
+            label="Drawdown"
+            value={acct.current_drawdown_pct != null ? acct.current_drawdown_pct.toFixed(1) + "%" : "0.0%"}
+            tone={acct.current_drawdown_pct < 0 ? "down" : ""}
+            accent={acct.current_drawdown_pct < 0 ? "warn" : "neutral"}
+            icon="⬎"
+          />
         </div>
 
         {/* Holdings */}
-        <section>
+        <section style={{ marginBottom: 28 }}>
           <SectionHeader
             title="Holdings"
             sub={`${holdings.length} open position${holdings.length === 1 ? "" : "s"}`}
@@ -921,22 +914,30 @@ export default function PaperTradingPage() {
             placing={placing}
           />
         </section>
+
+        {/* Performance chart */}
+        <section style={{ marginBottom: 28 }}>
+          <SectionHeader title="Performance" />
+          <PerformanceChart data={curve} />
+        </section>
+
+        {/* Transaction history */}
+        <section>
+          <SectionHeader
+            title="Transaction History"
+            sub={trades?.length ? `${trades.length} trade${trades.length === 1 ? "" : "s"}` : ""}
+          />
+          <TransactionHistory trades={trades} />
+        </section>
+
+      </div>{/* end left column */}
+
+      {/* ═══ RIGHT COLUMN — sticky order ticket ═══ */}
+      <div style={{ position: "sticky", top: 76, alignSelf: "start" }}>
+        <SectionHeader title="Order Ticket" />
+        <OrderTicket quotes={quotes} onOrderSuccess={load} />
       </div>
 
-      {/* ── Performance chart ── */}
-      <section style={{ marginBottom: 24 }}>
-        <SectionHeader title="Performance" />
-        <PerformanceChart data={curve} />
-      </section>
-
-      {/* ── Transaction history ── */}
-      <section>
-        <SectionHeader
-          title="Transaction History"
-          sub={trades?.length ? `${trades.length} trade${trades.length === 1 ? "" : "s"}` : ""}
-        />
-        <TransactionHistory trades={trades} />
-      </section>
     </div>
   );
 }
