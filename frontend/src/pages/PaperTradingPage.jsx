@@ -391,7 +391,7 @@ function OrderTicket({ quotes, onOrderSuccess }) {
         </button>
 
         <p style={{ fontSize: 11, color: "#999ba8", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
-          Fills at last stored close + costs · Sell closes entire position
+          Fills at live price + costs · Sell closes entire position
         </p>
       </div>
     </div>

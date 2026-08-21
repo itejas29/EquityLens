@@ -1,4 +1,4 @@
-"""Paper trading: virtual buy/sell against real latest close prices, same
+"""Paper trading: virtual buy/sell against real latest prices, same
 transaction cost model as backtesting. Long-only, one open position per
 stock per account (no pyramiding) to keep P&L per trade unambiguous.
 
@@ -105,11 +105,19 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
     if existing_open is not None:
         raise PaperTradingError(f"Already holding an open position in '{stock.symbol}' — sell it before buying more")
 
-    close = _latest_close(db, stock.id)
-    if close is None:
+    feed = get_price_feed()
+    quote = feed.prices.get(stock.symbol)
+    fill_price = None
+    if quote and quote.get("price"):
+        fill_price = float(quote["price"])
+    else:
+        close = _latest_close(db, stock.id)
+        if close is not None:
+            fill_price = close
+
+    if fill_price is None:
         raise PaperTradingError(f"No price data available for '{stock.symbol}'")
 
-    fill_price = close
     cost = _half_cost(fill_price, quantity)
     # Rounded once, here. This single figure is both what leaves the cash
     # balance and what all later P&L on this position is measured against.
@@ -156,11 +164,19 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
     if trade is None:
         raise PaperTradingError(f"No open position in '{stock.symbol}'")
 
-    close = _latest_close(db, stock.id)
-    if close is None:
+    feed = get_price_feed()
+    quote = feed.prices.get(stock.symbol)
+    fill_price = None
+    if quote and quote.get("price"):
+        fill_price = float(quote["price"])
+    else:
+        close = _latest_close(db, stock.id)
+        if close is not None:
+            fill_price = close
+
+    if fill_price is None:
         raise PaperTradingError(f"No price data available for '{stock.symbol}'")
 
-    fill_price = close
     cost = _half_cost(fill_price, trade.quantity)
     # Rounded once, mirroring cost_basis on the buy leg.
     proceeds = round(fill_price * trade.quantity - cost, 2)
