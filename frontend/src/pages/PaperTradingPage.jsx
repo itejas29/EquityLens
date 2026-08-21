@@ -104,21 +104,25 @@ function OrderTicket({ quotes, onOrderSuccess }) {
     if (buySym) setSymbol(buySym.toUpperCase());
   }, []);
 
-  // Estimated cost from live quote if available
-  const livePrice = quotes[symbol.trim().toUpperCase()]?.price ?? null;
+  const sym = symbol.trim().toUpperCase();
+  const liveQuote = quotes[sym] ?? null;
+  const livePrice = liveQuote?.price ?? null;
   const estimatedCost = livePrice != null && qty > 0 ? livePrice * Number(qty) : null;
 
+  const isBuy = side === "buy";
+  const accentColor = isBuy ? "var(--up)" : "var(--down)";
+  const accentSoft  = isBuy ? "var(--up-soft)" : "var(--down-soft)";
+
   async function handleOrder() {
-    const sym = symbol.trim().toUpperCase();
     if (!sym) { setMsg({ ok: false, text: "Enter a stock symbol." }); return; }
     setPlacing(true);
     setMsg(null);
     try {
-      const body = side === "buy" ? { symbol: sym, quantity: Number(qty) } : { symbol: sym };
+      const body = isBuy ? { symbol: sym, quantity: Number(qty) } : { symbol: sym };
       const r = await apiClient.post(`/paper/${side}`, body);
       setMsg({
         ok: true,
-        text: `${side === "buy" ? "Bought" : "Sold"} ${r.data.quantity} ${r.data.symbol} at ${inr(r.data.price)}${
+        text: `${isBuy ? "Bought" : "Sold"} ${r.data.quantity} ${r.data.symbol} at ${inr(r.data.price)}${
           r.data.pnl != null ? ` · P&L ${inr(r.data.pnl)}` : ""
         }`,
       });
@@ -132,135 +136,239 @@ function OrderTicket({ quotes, onOrderSuccess }) {
     }
   }
 
+  function stepQty(delta) {
+    setQty((prev) => Math.max(1, Number(prev) + delta));
+  }
+
   return (
-    <div className="panel" style={{ padding: "20px 22px" }}>
-      {/* BUY / SELL toggle */}
-      <div style={{
-        display: "inline-flex",
-        background: "var(--surface-2)",
-        borderRadius: "var(--r)",
-        padding: 3,
-        marginBottom: 18,
-        gap: 3,
-      }}>
-        {["buy", "sell"].map((s) => (
-          <button
-            key={s}
-            onClick={() => { setSide(s); setMsg(null); }}
-            style={{
-              padding: "7px 22px",
-              borderRadius: "calc(var(--r) - 1px)",
-              border: "none",
-              fontWeight: 700,
-              fontSize: 13,
-              letterSpacing: "0.03em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              transition: "all 0.15s",
-              background: side === s
-                ? s === "buy" ? "var(--up)" : "var(--down)"
-                : "transparent",
-              color: side === s ? "#fff" : "var(--text-3)",
-              boxShadow: side === s ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
-            }}
-          >
-            {s === "buy" ? "▲ Buy" : "▼ Sell"}
-          </button>
-        ))}
+    <div className="panel" style={{ overflow: "hidden" }}>
+
+      {/* ── BUY / SELL header tabs ── */}
+      <div style={{ display: "flex", borderBottom: "2px solid var(--line)" }}>
+        {["buy", "sell"].map((s) => {
+          const active = side === s;
+          const tabColor = s === "buy" ? "var(--up)" : "var(--down)";
+          return (
+            <button
+              key={s}
+              onClick={() => { setSide(s); setMsg(null); }}
+              style={{
+                flex: 1,
+                padding: "14px 0",
+                border: "none",
+                borderBottom: active ? `3px solid ${tabColor}` : "3px solid transparent",
+                marginBottom: -2,
+                background: active ? (s === "buy" ? "rgba(15,157,88,0.06)" : "rgba(217,48,37,0.06)") : "var(--surface)",
+                color: active ? tabColor : "var(--text-3)",
+                fontWeight: 700,
+                fontSize: 14,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {s === "buy" ? "▲  Buy" : "▼  Sell"}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Inputs row */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div style={{ flex: "1 1 160px" }}>
-          <label htmlFor="pt-sym" style={{ display: "block", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 6 }}>
-            Symbol
+      {/* ── Body ── */}
+      <div style={{ padding: "20px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+        {/* Stock symbol input */}
+        <div>
+          <label htmlFor="pt-sym" style={{
+            display: "block", fontSize: 11, fontWeight: 700,
+            letterSpacing: "0.06em", textTransform: "uppercase",
+            color: "var(--text-3)", marginBottom: 7,
+          }}>
+            Stock Symbol
           </label>
           <input
             id="pt-sym"
-            className="search-in"
-            style={{ padding: "0 12px", width: "100%", height: 38, fontFamily: "var(--font-num)", fontWeight: 700, fontSize: 14, letterSpacing: "0.04em" }}
+            style={{
+              width: "100%",
+              height: 44,
+              padding: "0 14px",
+              border: `1.5px solid ${sym && livePrice ? accentColor : "var(--line)"}`,
+              borderRadius: "var(--r)",
+              background: "var(--surface-2)",
+              color: "var(--text-1)",
+              fontFamily: "var(--font-num)",
+              fontWeight: 800,
+              fontSize: 16,
+              letterSpacing: "0.06em",
+              outline: "none",
+              transition: "border-color 0.15s",
+            }}
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setMsg(null); }}
             placeholder="e.g. HINDALCO"
             autoComplete="off"
             onKeyDown={(e) => e.key === "Enter" && handleOrder()}
+            onFocus={(e) => e.target.style.borderColor = accentColor}
+            onBlur={(e) => e.target.style.borderColor = sym && livePrice ? accentColor : "var(--line)"}
           />
+          {/* Live price row */}
+          {livePrice != null ? (
+            <div style={{
+              marginTop: 7, display: "flex", alignItems: "center",
+              justifyContent: "space-between",
+            }}>
+              <span style={{ fontSize: 12, color: "var(--text-3)" }}>LTP</span>
+              <span className="num" style={{ fontSize: 15, fontWeight: 700, color: accentColor }}>
+                {inr(livePrice)}
+              </span>
+            </div>
+          ) : sym ? (
+            <div style={{ marginTop: 7, fontSize: 12, color: "var(--text-3)" }}>
+              Price will load from live feed
+            </div>
+          ) : null}
         </div>
 
-        {side === "buy" && (
-          <div style={{ flex: "0 0 110px" }}>
-            <label htmlFor="pt-qty" style={{ display: "block", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-3)", marginBottom: 6 }}>
+        {/* Quantity — only for buy (sell closes whole position) */}
+        {isBuy ? (
+          <div>
+            <label htmlFor="pt-qty" style={{
+              display: "block", fontSize: 11, fontWeight: 700,
+              letterSpacing: "0.06em", textTransform: "uppercase",
+              color: "var(--text-3)", marginBottom: 7,
+            }}>
               Quantity
             </label>
-            <input
-              id="pt-qty"
-              type="number"
-              min="1"
-              className="search-in"
-              style={{ padding: "0 12px", width: "100%", height: 38, fontFamily: "var(--font-num)", fontSize: 14 }}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 0, border: "1.5px solid var(--line)", borderRadius: "var(--r)", overflow: "hidden", background: "var(--surface-2)" }}>
+              <button
+                onClick={() => stepQty(-1)}
+                style={{
+                  width: 44, height: 44, border: "none", borderRight: "1px solid var(--line)",
+                  background: "transparent", fontSize: 20, fontWeight: 500,
+                  color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+                tabIndex={-1}
+              >−</button>
+              <input
+                id="pt-qty"
+                type="number"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+                style={{
+                  flex: 1, height: 44, border: "none",
+                  background: "transparent",
+                  textAlign: "center",
+                  fontFamily: "var(--font-num)",
+                  fontWeight: 700, fontSize: 17,
+                  color: "var(--text-1)",
+                  outline: "none",
+                  MozAppearance: "textfield",
+                }}
+              />
+              <button
+                onClick={() => stepQty(1)}
+                style={{
+                  width: 44, height: 44, border: "none", borderLeft: "1px solid var(--line)",
+                  background: "transparent", fontSize: 20, fontWeight: 500,
+                  color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+                tabIndex={-1}
+              >+</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            padding: "11px 14px",
+            background: "var(--down-soft)",
+            borderRadius: "var(--r)",
+            border: "1px solid rgba(217,48,37,0.2)",
+            fontSize: 12.5,
+            color: "var(--down)",
+            fontWeight: 600,
+            lineHeight: 1.5,
+          }}>
+            ⚠ This will close your entire position in {sym || "the stock"}.
           </div>
         )}
 
+        {/* Order summary row */}
+        {isBuy && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1px 1fr",
+            gap: 0,
+            background: "var(--surface-2)",
+            borderRadius: "var(--r)",
+            border: "1px solid var(--line)",
+            overflow: "hidden",
+          }}>
+            <div style={{ padding: "10px 14px" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 3 }}>Price / share</div>
+              <div className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>
+                {livePrice != null ? inr(livePrice) : "—"}
+              </div>
+            </div>
+            <div style={{ background: "var(--line)" }} />
+            <div style={{ padding: "10px 14px" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 3 }}>Est. Total</div>
+              <div className="num" style={{ fontSize: 14, fontWeight: 700, color: estimatedCost != null ? accentColor : "var(--text-1)" }}>
+                {estimatedCost != null ? inr(estimatedCost) : "—"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Result message */}
+        {msg && (
+          <div role="status" style={{
+            padding: "11px 14px",
+            borderRadius: "var(--r)",
+            background: msg.ok ? "var(--up-soft)" : "var(--down-soft)",
+            border: `1px solid ${msg.ok ? "rgba(15,157,88,0.25)" : "rgba(217,48,37,0.25)"}`,
+            color: msg.ok ? "var(--up)" : "var(--down)",
+            fontSize: 13,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            lineHeight: 1.5,
+          }}>
+            <span style={{ flexShrink: 0, marginTop: 1 }}>{msg.ok ? "✓" : "✕"}</span>
+            {msg.text}
+          </div>
+        )}
+
+        {/* CTA button — full width */}
         <button
-          className={`btn ${side === "buy" ? "" : "btn-danger"}`}
           disabled={placing}
           onClick={handleOrder}
           style={{
-            height: 38,
-            padding: "0 22px",
-            fontWeight: 700,
-            fontSize: 13.5,
-            flexShrink: 0,
-            background: side === "buy"
-              ? "var(--up)"
-              : "var(--down)",
-            borderColor: "transparent",
-            color: "#fff",
-            boxShadow: side === "buy"
-              ? "0 4px 14px rgba(15,157,88,0.35)"
-              : "0 4px 14px rgba(217,48,37,0.3)",
-            transition: "all 0.15s",
-            opacity: placing ? 0.7 : 1,
+            width: "100%",
+            height: 48,
+            border: "none",
+            borderRadius: "var(--r)",
+            background: placing ? "var(--line)" : accentColor,
+            color: placing ? "var(--text-3)" : "#fff",
+            fontWeight: 800,
+            fontSize: 15,
+            letterSpacing: "0.03em",
+            cursor: placing ? "not-allowed" : "pointer",
+            boxShadow: placing ? "none" : isBuy
+              ? "0 6px 20px rgba(15,157,88,0.35)"
+              : "0 6px 20px rgba(217,48,37,0.3)",
+            transition: "all 0.18s",
           }}
         >
-          {placing ? "Placing…" : side === "buy" ? "Place Buy" : "Sell Position"}
+          {placing ? "Placing order…" : isBuy ? `Buy ${sym || "Stock"}` : `Sell ${sym || "Position"}`}
         </button>
+
+        <p style={{ fontSize: 11, color: "var(--text-3)", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
+          Fills at last stored close + costs · Sell closes entire position
+        </p>
       </div>
-
-      {/* Estimated cost preview */}
-      {side === "buy" && estimatedCost != null && (
-        <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-3)" }}>
-          Estimated cost: <span className="num" style={{ color: "var(--text-1)", fontWeight: 600 }}>{inr(estimatedCost)}</span>
-          {" "}at live price <span className="num" style={{ color: "var(--text-1)" }}>{inr(livePrice)}</span>
-        </div>
-      )}
-
-      {/* Result message */}
-      {msg && (
-        <div role="status" style={{
-          marginTop: 14,
-          padding: "10px 14px",
-          borderRadius: "var(--r)",
-          background: msg.ok ? "var(--up-soft)" : "var(--down-soft)",
-          border: `1px solid ${msg.ok ? "rgba(15,157,88,0.25)" : "rgba(217,48,37,0.25)"}`,
-          color: msg.ok ? "var(--up)" : "var(--down)",
-          fontSize: 13,
-          fontWeight: 600,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}>
-          <span>{msg.ok ? "✓" : "✕"}</span>
-          {msg.text}
-        </div>
-      )}
-
-      <p style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 14, marginBottom: 0, lineHeight: 1.65 }}>
-        Orders fill at the latest stored close plus costs. Selling closes the whole position; partial exits are not supported.
-      </p>
     </div>
   );
 }
@@ -791,13 +899,13 @@ export default function PaperTradingPage() {
         />
       </div>
 
-      {/* ── Main grid: Order ticket + Holdings ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.6fr)", gap: 16, marginBottom: 24, alignItems: "start" }}>
-        {/* Order ticket */}
-        <section>
+      {/* ── Main grid: Order ticket (fixed sidebar) + Holdings ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "340px minmax(0,1fr)", gap: 20, marginBottom: 24, alignItems: "start" }}>
+        {/* Order ticket — fixed width sidebar like Groww/Zerodha */}
+        <div style={{ position: "sticky", top: 72 }}>
           <SectionHeader title="Order Ticket" />
           <OrderTicket quotes={quotes} onOrderSuccess={load} />
-        </section>
+        </div>
 
         {/* Holdings */}
         <section>
