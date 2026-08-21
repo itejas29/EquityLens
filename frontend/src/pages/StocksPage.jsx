@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
-import { EmptyState, ErrorState, LoadingState, SectionHeader, compactNum } from "../components/ui/Primitives";
+import { EmptyState, ErrorState, LoadingState, SectionHeader, compactNum, inr, Change, ScoreBadge } from "../components/ui/Primitives";
 
 const CAP_BANDS = [
   { key: "", label: "All caps", fn: () => true },
@@ -81,6 +81,8 @@ export default function StocksPage() {
     const params = new URLSearchParams(window.location.search);
     const sec = params.get("sector");
     if (sec) setSector(sec);
+    const qParam = params.get("q");
+    if (qParam) setQ(qParam);
   }, []);
 
   if (loading) return <div className="page"><LoadingState rows={10} /></div>;

@@ -83,6 +83,19 @@ export default function StockSearch() {
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (results.length > 0) {
+              choose(results[0]);
+            } else if (query.trim()) {
+              setOpen(false);
+              navigate(`/stocks?q=${encodeURIComponent(query.trim())}`);
+              setQuery("");
+            }
+          }
+          if (e.key === "Escape") setOpen(false);
+        }}
         aria-label="Search NSE stocks"
       />
 
