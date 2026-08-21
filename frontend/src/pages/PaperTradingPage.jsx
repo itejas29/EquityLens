@@ -111,8 +111,13 @@ function OrderTicket({ quotes, onOrderSuccess }) {
   const estimatedCost = livePrice != null && qty > 0 ? livePrice * Number(qty) : null;
 
   const isBuy = side === "buy";
-  const accentColor = isBuy ? "var(--up)" : "var(--down)";
-  const accentSoft  = isBuy ? "var(--up-soft)" : "var(--down-soft)";
+  // Hardcoded hex — CSS variables don't reliably resolve in inline styles on deployed builds
+  const BUY_COLOR  = "#0f9d58";
+  const SELL_COLOR = "#d93025";
+  const BUY_SOFT   = "#e8f5ee";
+  const SELL_SOFT  = "#fdecea";
+  const activeColor = isBuy ? BUY_COLOR : SELL_COLOR;
+  const activeSoft  = isBuy ? BUY_SOFT  : SELL_SOFT;
 
   async function handleOrder() {
     if (!sym) { setMsg({ ok: false, text: "Enter a stock symbol." }); return; }
@@ -142,51 +147,56 @@ function OrderTicket({ quotes, onOrderSuccess }) {
   }
 
   return (
-    <div className="panel" style={{ overflow: "hidden" }}>
+    <div style={{
+      background: "#ffffff",
+      border: "1px solid #e3e6ec",
+      borderRadius: 12,
+      overflow: "hidden",
+      boxShadow: "0 2px 12px rgba(16,19,26,0.07)",
+    }}>
 
-      {/* ── BUY / SELL header tabs ── */}
-      <div style={{ display: "flex", borderBottom: "2px solid var(--line)" }}>
-        {["buy", "sell"].map((s) => {
+      {/* BUY / SELL tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid #e3e6ec" }}>
+        {[
+          { s: "buy",  label: "▲  Buy",  color: BUY_COLOR,  soft: BUY_SOFT  },
+          { s: "sell", label: "▼  Sell", color: SELL_COLOR, soft: SELL_SOFT },
+        ].map(({ s, label, color, soft }) => {
           const active = side === s;
-          const tabColor = s === "buy" ? "var(--up)" : "var(--down)";
           return (
             <button
               key={s}
               onClick={() => { setSide(s); setMsg(null); }}
               style={{
-                flex: 1,
-                padding: "14px 0",
+                flex: 1, padding: "15px 0",
                 border: "none",
-                borderBottom: active ? `3px solid ${tabColor}` : "3px solid transparent",
-                marginBottom: -2,
-                background: active ? (s === "buy" ? "rgba(15,157,88,0.06)" : "rgba(217,48,37,0.06)") : "var(--surface)",
-                color: active ? tabColor : "var(--text-3)",
-                fontWeight: 700,
-                fontSize: 14,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
+                borderBottom: `3px solid ${active ? color : "transparent"}`,
+                marginBottom: -1,
+                background: active ? soft : "#fafbfc",
+                color: active ? color : "#646c7d",
+                fontFamily: "inherit",
+                fontWeight: 700, fontSize: 13.5,
+                letterSpacing: "0.05em", textTransform: "uppercase",
                 cursor: "pointer",
+                WebkitAppearance: "none", appearance: "none",
                 transition: "all 0.15s",
               }}
             >
-              {s === "buy" ? "▲  Buy" : "▼  Sell"}
+              {label}
             </button>
           );
         })}
       </div>
 
-      {/* ── Body ── */}
-      <div style={{ padding: "20px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Form body */}
+      <div style={{ padding: "20px 18px", display: "flex", flexDirection: "column", gap: 18 }}>
 
-        {/* Stock symbol input */}
+        {/* Symbol input */}
         <div>
           <label htmlFor="pt-sym" style={{
-            display: "block", fontSize: 11, fontWeight: 700,
-            letterSpacing: "0.06em", textTransform: "uppercase",
-            color: "var(--text-3)", marginBottom: 7,
-          }}>
-            Stock Symbol
-          </label>
+            display: "block", fontSize: 10.5, fontWeight: 700,
+            letterSpacing: "0.07em", textTransform: "uppercase",
+            color: "#646c7d", marginBottom: 8,
+          }}>Stock Symbol</label>
           <input
             id="pt-sym"
             type="text"
@@ -199,64 +209,66 @@ function OrderTicket({ quotes, onOrderSuccess }) {
             onKeyDown={(e) => e.key === "Enter" && handleOrder()}
             placeholder="e.g. HINDALCO"
             style={{
-              width: "100%",
-              height: 44,
+              display: "block", width: "100%", height: 46,
               padding: "0 14px",
-              border: `1.5px solid ${focused ? accentColor : (sym && livePrice ? accentColor : "var(--line)")}`,
-              borderRadius: "var(--r)",
-              background: "var(--surface-2)",
-              color: "var(--text-1)",
-              fontFamily: "var(--font-num)",
-              fontWeight: 800,
-              fontSize: 16,
-              letterSpacing: "0.06em",
-              outline: "none",
-              transition: "border-color 0.15s",
-              boxSizing: "border-box",
-              WebkitAppearance: "none",
-              MozAppearance: "none",
-              appearance: "none",
+              border: `2px solid ${focused ? activeColor : "#e3e6ec"}`,
+              borderRadius: 8,
+              background: focused ? "#fafbfc" : "#f7f8fa",
+              color: "#10131a",
+              fontFamily: "'Inter', -apple-system, sans-serif",
+              fontWeight: 800, fontSize: 16, letterSpacing: "0.05em",
+              outline: "none", boxSizing: "border-box",
+              transition: "border-color 0.15s, background 0.15s",
+              WebkitAppearance: "none", MozAppearance: "none", appearance: "none",
             }}
           />
-          {/* Live price row */}
           {livePrice != null ? (
             <div style={{
-              marginTop: 7, display: "flex", alignItems: "center",
+              marginTop: 8, display: "flex", alignItems: "center",
               justifyContent: "space-between",
+              padding: "8px 12px", background: activeSoft, borderRadius: 6,
             }}>
-              <span style={{ fontSize: 12, color: "var(--text-3)" }}>LTP</span>
-              <span className="num" style={{ fontSize: 15, fontWeight: 700, color: accentColor }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#646c7d" }}>LTP</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: activeColor, fontFamily: "'Inter', sans-serif" }}>
                 {inr(livePrice)}
               </span>
             </div>
           ) : sym ? (
-            <div style={{ marginTop: 7, fontSize: 12, color: "var(--text-3)" }}>
-              Price will load from live feed
-            </div>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "#646c7d" }}>
+              ⏳ Price loading from live feed…
+            </p>
           ) : null}
         </div>
 
-        {/* Quantity — only for buy (sell closes whole position) */}
+        {/* Quantity stepper or sell warning */}
         {isBuy ? (
           <div>
             <label htmlFor="pt-qty" style={{
-              display: "block", fontSize: 11, fontWeight: 700,
-              letterSpacing: "0.06em", textTransform: "uppercase",
-              color: "var(--text-3)", marginBottom: 7,
+              display: "block", fontSize: 10.5, fontWeight: 700,
+              letterSpacing: "0.07em", textTransform: "uppercase",
+              color: "#646c7d", marginBottom: 8,
+            }}>Quantity</label>
+            <div style={{
+              display: "flex", alignItems: "stretch",
+              border: "2px solid #e3e6ec", borderRadius: 8,
+              overflow: "hidden", background: "#f7f8fa",
             }}>
-              Quantity
-            </label>
-            <div style={{ display: "flex", alignItems: "center", gap: 0, border: "1.5px solid var(--line)", borderRadius: "var(--r)", overflow: "hidden", background: "var(--surface-2)" }}>
-              <button
-                onClick={() => stepQty(-1)}
-                style={{
-                  width: 44, height: 44, border: "none", borderRight: "1px solid var(--line)",
-                  background: "transparent", fontSize: 20, fontWeight: 500,
-                  color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-                tabIndex={-1}
-              >−</button>
+              {[{ delta: -1, label: "−", side: "left" }, { delta: 1, label: "+", side: "right" }].slice(0, 1).map(({ delta, label }) => (
+                <button
+                  key="minus"
+                  onClick={() => stepQty(-1)}
+                  tabIndex={-1}
+                  style={{
+                    width: 48, minHeight: 46, border: "none",
+                    borderRight: "1px solid #e3e6ec",
+                    background: "#ffffff", fontSize: 22, fontWeight: 400,
+                    color: "#3d4453", cursor: "pointer", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontFamily: "inherit",
+                    WebkitAppearance: "none", appearance: "none",
+                  }}
+                >−</button>
+              ))}
               <input
                 id="pt-qty"
                 type="number"
@@ -264,121 +276,129 @@ function OrderTicket({ quotes, onOrderSuccess }) {
                 value={qty}
                 onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
                 style={{
-                  flex: 1, height: 44, border: "none",
-                  background: "transparent",
-                  textAlign: "center",
-                  fontFamily: "var(--font-num)",
-                  fontWeight: 700, fontSize: 17,
-                  color: "var(--text-1)",
+                  flex: 1, minHeight: 46, border: "none",
+                  background: "transparent", textAlign: "center",
+                  fontFamily: "'Inter', -apple-system, sans-serif",
+                  fontWeight: 800, fontSize: 18, color: "#10131a",
                   outline: "none",
-                  MozAppearance: "textfield",
+                  MozAppearance: "textfield", WebkitAppearance: "none",
                 }}
               />
               <button
                 onClick={() => stepQty(1)}
-                style={{
-                  width: 44, height: 44, border: "none", borderLeft: "1px solid var(--line)",
-                  background: "transparent", fontSize: 20, fontWeight: 500,
-                  color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
                 tabIndex={-1}
+                style={{
+                  width: 48, minHeight: 46, border: "none",
+                  borderLeft: "1px solid #e3e6ec",
+                  background: "#ffffff", fontSize: 22, fontWeight: 400,
+                  color: "#3d4453", cursor: "pointer", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: "inherit",
+                  WebkitAppearance: "none", appearance: "none",
+                }}
               >+</button>
             </div>
           </div>
         ) : (
           <div style={{
-            padding: "11px 14px",
-            background: "var(--down-soft)",
-            borderRadius: "var(--r)",
-            border: "1px solid rgba(217,48,37,0.2)",
-            fontSize: 12.5,
-            color: "var(--down)",
-            fontWeight: 600,
-            lineHeight: 1.5,
+            padding: "12px 14px", background: "#fdecea",
+            borderRadius: 8, border: "1px solid rgba(217,48,37,0.25)",
+            fontSize: 13, color: "#d93025", fontWeight: 600, lineHeight: 1.55,
           }}>
             ⚠ This will close your entire position in {sym || "the stock"}.
           </div>
         )}
 
-        {/* Order summary row */}
+        {/* Order summary */}
         {isBuy && (
           <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1px 1fr",
-            gap: 0,
-            background: "var(--surface-2)",
-            borderRadius: "var(--r)",
-            border: "1px solid var(--line)",
-            overflow: "hidden",
+            display: "grid", gridTemplateColumns: "1fr 1fr",
+            gap: 1, background: "#e3e6ec",
+            borderRadius: 8, overflow: "hidden",
           }}>
-            <div style={{ padding: "10px 14px" }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 3 }}>Price / share</div>
-              <div className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--text-1)" }}>
-                {livePrice != null ? inr(livePrice) : "—"}
+            {[
+              { label: "Price / share", val: livePrice != null ? inr(livePrice) : "—", hi: false },
+              { label: "Est. Total",    val: estimatedCost != null ? inr(estimatedCost) : "—", hi: estimatedCost != null },
+            ].map(({ label, val, hi }) => (
+              <div key={label} style={{ padding: "10px 14px", background: "#f7f8fa" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#646c7d", marginBottom: 4 }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: hi ? activeColor : "#10131a", fontFamily: "'Inter', sans-serif" }}>
+                  {val}
+                </div>
               </div>
-            </div>
-            <div style={{ background: "var(--line)" }} />
-            <div style={{ padding: "10px 14px" }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 3 }}>Est. Total</div>
-              <div className="num" style={{ fontSize: 14, fontWeight: 700, color: estimatedCost != null ? accentColor : "var(--text-1)" }}>
-                {estimatedCost != null ? inr(estimatedCost) : "—"}
-              </div>
-            </div>
+            ))}
           </div>
         )}
 
-        {/* Result message */}
+        {/* Status message */}
         {msg && (
           <div role="status" style={{
-            padding: "11px 14px",
-            borderRadius: "var(--r)",
-            background: msg.ok ? "var(--up-soft)" : "var(--down-soft)",
-            border: `1px solid ${msg.ok ? "rgba(15,157,88,0.25)" : "rgba(217,48,37,0.25)"}`,
-            color: msg.ok ? "var(--up)" : "var(--down)",
-            fontSize: 13,
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 8,
-            lineHeight: 1.5,
+            padding: "11px 14px", borderRadius: 8,
+            background: msg.ok ? "#e8f5ee" : "#fdecea",
+            border: `1px solid ${msg.ok ? "rgba(15,157,88,0.3)" : "rgba(217,48,37,0.3)"}`,
+            color: msg.ok ? "#0f9d58" : "#d93025",
+            fontSize: 13, fontWeight: 600,
+            display: "flex", alignItems: "flex-start", gap: 8, lineHeight: 1.55,
           }}>
-            <span style={{ flexShrink: 0, marginTop: 1 }}>{msg.ok ? "✓" : "✕"}</span>
+            <span style={{ flexShrink: 0 }}>{msg.ok ? "✓" : "✕"}</span>
             {msg.text}
           </div>
         )}
 
-        {/* CTA button — full width */}
+        {/* ── Place order button ── */}
         <button
           disabled={placing}
           onClick={handleOrder}
           style={{
+            /* layout — flex ensures text is always centered + visible */
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             width: "100%",
-            height: 48,
+            height: 50,
+            /* browser reset — prevents inherited styles hiding text */
+            WebkitAppearance: "none",
+            MozAppearance: "none",
+            appearance: "none",
             border: "none",
-            borderRadius: "var(--r)",
-            background: placing ? "var(--line)" : accentColor,
-            color: placing ? "var(--text-3)" : "#fff",
+            outline: "none",
+            /* colors — explicit hex, never CSS vars */
+            background: placing ? "#e3e6ec" : activeColor,
+            color: placing ? "#646c7d" : "#ffffff",
+            /* typography */
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
             fontWeight: 800,
             fontSize: 15,
-            letterSpacing: "0.03em",
-            cursor: placing ? "not-allowed" : "pointer",
+            letterSpacing: "0.04em",
+            /* shape + shadow */
+            borderRadius: 8,
             boxShadow: placing ? "none" : isBuy
-              ? "0 6px 20px rgba(15,157,88,0.35)"
-              : "0 6px 20px rgba(217,48,37,0.3)",
+              ? "0 4px 18px rgba(15,157,88,0.4)"
+              : "0 4px 18px rgba(217,48,37,0.38)",
+            cursor: placing ? "not-allowed" : "pointer",
             transition: "all 0.18s",
+            opacity: placing ? 0.75 : 1,
           }}
         >
-          {placing ? "Placing order…" : isBuy ? `Buy ${sym || "Stock"}` : `Sell ${sym || "Position"}`}
+          {placing
+            ? "Placing order…"
+            : isBuy
+              ? `Buy ${sym || "Stock"}`
+              : `Sell ${sym || "Position"}`
+          }
         </button>
 
-        <p style={{ fontSize: 11, color: "var(--text-3)", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
+        <p style={{ fontSize: 11, color: "#999ba8", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
           Fills at last stored close + costs · Sell closes entire position
         </p>
       </div>
     </div>
   );
 }
+
+
 
 function HoldingsPanel({ holdings, acct, quotes, onSell, placing }) {
   const totalPnl = holdings.reduce((acc, h) => {
