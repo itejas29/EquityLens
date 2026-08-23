@@ -54,6 +54,7 @@ from app.core.fast_quotes_config import (
     SYMBOL_SET_REFRESH_SECONDS,
 )
 from app.core.market_hours import IST, is_market_hours
+from app.core.memory_hygiene import trim_every
 from app.core.database import SessionLocal
 from app.core.experiment_lock import is_locked, lock_info
 from app.core.fundamentals_config import (
@@ -175,8 +176,21 @@ def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
 async def price_refresh_loop() -> None:
     """Infinite asyncio loop — runs for the lifetime of the application."""
     logger.info("Live price refresh loop started")
+    tick = 0
     while True:
         await asyncio.sleep(60)
+        tick += 1
+        # ~390 ticks over a trading day, each building fresh pandas DataFrames
+        # for 501 symbols via yfinance. The 20:00 incremental job's own
+        # allocator fragmentation was fixed the same way (core/memory_hygiene)
+        # after it stuck a run at 0/0 status on 2026-08-21 — the crash landed
+        # in the FIRST batch, meaning whatever memory this loop had already
+        # accumulated over the trading day was the real headroom the 20:00 job
+        # started from, not the ~130MB baseline an isolated process measures.
+        # Off the event loop, same as the blocking yfinance calls below — a
+        # synchronous gc.collect()/malloc_trim() here would stall every
+        # concurrent WebSocket send and API request for its duration.
+        await asyncio.get_event_loop().run_in_executor(_executor, trim_every, tick, 10)
         if not _is_market_hours():
             continue
 
@@ -260,10 +274,18 @@ async def fast_quote_loop() -> None:
     symbols: list[str] = []
     symbols_built_at = 0.0
     consecutive_failures = 0
+    tick = 0
 
     while True:
         try:
             await asyncio.sleep(FAST_REFRESH_SECONDS)
+            tick += 1
+            # ~2340 ticks over a trading day at 10s cadence — same allocator
+            # fragmentation reasoning as price_refresh_loop above, just via
+            # _fast_executor since that is this loop's own pool. every=60 is
+            # roughly the same ~10-minute wall-clock interval as that loop's
+            # every=10 at its 60s cadence.
+            await asyncio.get_event_loop().run_in_executor(_fast_executor, trim_every, tick, 60)
 
             if not _is_market_hours():
                 # Nothing to poll for. Tier 1's frozen session snapshot is what
@@ -509,6 +531,32 @@ def _run_incremental_update(as_of: date_type) -> int:
 
     db = SessionLocal()
     try:
+        # Reap stale "running" rows before starting a new one. A "running" row
+        # only ever gets closed out by the same process instance that created
+        # it (see the except/finally below) — if that process is killed rather
+        # than raising (an OOM SIGKILL gets no chance to run either), the row
+        # is orphaned in "running" forever. daily_price_update_loop only ever
+        # asks about TODAY's date, so a stuck row for a PAST date is never
+        # revisited and the gap in that day's price data is never backfilled.
+        # Confirmed live: 2026-08-21's run stuck at "running"/0/0 for 3 days
+        # until this was added, discovered only because a human happened to
+        # check pipeline_runs directly.
+        stale_cutoff = datetime.now(IST) - timedelta(hours=3)
+        stale = (
+            db.query(PipelineRun)
+            .filter(PipelineRun.status == "running", PipelineRun.started_at < stale_cutoff)
+            .all()
+        )
+        for row in stale:
+            logger.warning(
+                "pipeline.incremental.reaped_stale_running run_date=%s started_at=%s",
+                row.run_date, row.started_at,
+            )
+            row.status = "failed"
+            row.finished_at = datetime.now(IST)
+        if stale:
+            db.commit()
+
         # Create a PipelineRun record at start
         pipeline_run = PipelineRun(
             run_date=as_of,
