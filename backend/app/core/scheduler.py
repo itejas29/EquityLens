@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type, datetime, timedelta
 
@@ -80,6 +81,35 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipeline")
 # the loop awaits each fetch before starting the next, so there is never more
 # than one in flight, and a second worker could only ever hold an orphan.
 _fast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fastquote")
+
+# --- Heavy-job mutex (memory incident #4) -----------------------------------
+#
+# 2026-08-24, ~10:19-10:21 IST: a manual incremental recovery, signal
+# generation, AND price_refresh_loop/fast_quote_loop's normal market-hours
+# ticking all landed in the same couple of minutes, and Render restarted the
+# instance for exceeding 512MB. The three prior memory fixes (unbounded
+# queries, then periodic gc.collect()/malloc_trim() in the batch loops, then
+# the same in the two continuous loops) each measurably reduced ONE job's own
+# peak footprint in isolation — none of them account for several of these
+# jobs being IN FLIGHT AT THE SAME TIME, which is what this specific incident
+# was. price_refresh_loop and fast_quote_loop are cheap to skip a single tick
+# of (one skipped refresh is invisible to a user); the batch jobs are not
+# cheap to delay, so they get priority; hence a flag the light loops check and
+# yield to, not a lock they'd block on.
+_heavy_job_active = False
+
+
+@asynccontextmanager
+async def _heavy_job():
+    """Wrap every heavy batch job's executor dispatch. While active,
+    price_refresh_loop/fast_quote_loop skip their tick instead of adding their
+    own yfinance-download-plus-DataFrame memory footprint on top."""
+    global _heavy_job_active
+    _heavy_job_active = True
+    try:
+        yield
+    finally:
+        _heavy_job_active = False
 
 
 # --- Helpers ---
@@ -193,6 +223,12 @@ async def price_refresh_loop() -> None:
         await asyncio.get_event_loop().run_in_executor(_executor, trim_every, tick, 10)
         if not _is_market_hours():
             continue
+        if _heavy_job_active:
+            # A batch job is in flight — skip this tick rather than add a
+            # second yfinance download + DataFrame footprint on top of it.
+            # One skipped refresh is invisible; live prices already fall back
+            # to the last tick's values (see the merge-with-previous below).
+            continue
 
         symbols = await asyncio.get_event_loop().run_in_executor(
             _executor, _get_active_symbols
@@ -291,6 +327,10 @@ async def fast_quote_loop() -> None:
                 # Nothing to poll for. Tier 1's frozen session snapshot is what
                 # the UI shows outside hours, correctly labelled "closed".
                 consecutive_failures = 0
+                continue
+            if _heavy_job_active:
+                # Same deference as price_refresh_loop — skip this tick rather
+                # than compound a batch job's memory footprint.
                 continue
 
             now = time.monotonic()
@@ -478,7 +518,8 @@ async def daily_signals_loop() -> None:
             if pipeline_run is None or pipeline_run.status != "complete":
                 if recovery_attempted_for_date != today:
                     logger.warning("pipeline.signals.data_missing date=%s — attempting bounded recovery", yesterday)
-                    await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, yesterday)
+                    async with _heavy_job():
+                        await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, yesterday)
                     recovery_attempted_for_date = today
                     
                     pipeline_run = await asyncio.get_event_loop().run_in_executor(
@@ -496,7 +537,8 @@ async def daily_signals_loop() -> None:
                     last_skip_logged_date = today
                 continue
 
-            count = await asyncio.get_event_loop().run_in_executor(_executor, _generate_signals, today)
+            async with _heavy_job():
+                count = await asyncio.get_event_loop().run_in_executor(_executor, _generate_signals, today)
             logger.info("pipeline.signals.published date=%s count=%d", today, count)
         except Exception as exc:
             # Never let one bad day kill the loop; it retries on the next tick.
@@ -663,7 +705,8 @@ async def daily_price_update_loop() -> None:
                 continue
 
             logger.info("pipeline.incremental.starting date=%s", today)
-            count = await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, today)
+            async with _heavy_job():
+                count = await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, today)
             logger.info("pipeline.incremental.complete date=%s stocks=%d", today, count)
         except Exception as exc:
             logger.exception("Incremental price update failed: %s", exc)
@@ -766,7 +809,8 @@ async def weekly_universe_rebuild_loop() -> None:
                 continue
 
             logger.info("pipeline.full_rebuild.starting date=%s", today)
-            count = await asyncio.get_event_loop().run_in_executor(_executor, _run_full_rebuild, today)
+            async with _heavy_job():
+                count = await asyncio.get_event_loop().run_in_executor(_executor, _run_full_rebuild, today)
             logger.info("pipeline.full_rebuild.complete date=%s stocks=%d", today, count)
         except Exception as exc:
             logger.exception("Weekly universe rebuild failed: %s", exc)
