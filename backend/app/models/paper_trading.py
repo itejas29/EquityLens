@@ -41,6 +41,19 @@ class PaperTrade(Base):
     exit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pnl: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 
+    # Populated only for trades opened by the AI trading loop (services/ai_trading.py),
+    # from the DailySignal it bought against — a human manual buy leaves these NULL,
+    # per the "missing data stays NULL" rule, since a manual position has no strategy
+    # stop/target to hold it to. Stored at entry time rather than re-derived, because
+    # DailySignal is a frozen daily snapshot and the row that produced this trade may
+    # no longer be "today's" shortlist by the time a sell check runs.
+    stop_loss: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    target_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    entry_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # Why the AI loop closed this position: "stop" | "target" | "horizon" | "regime".
+    # NULL for manual trades and for still-open ones.
+    exit_reason: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
 
 class PaperEquitySnapshot(Base):
     """Daily snapshot of the paper trading portfolio to construct equity curves."""

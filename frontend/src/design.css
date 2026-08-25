@@ -1,53 +1,57 @@
-.el /* ============================================================================
-   EquityLens design system — light, .el dense, .el professional.
+/* ============================================================================
+   EquityLens design system — dense, professional.
 
-   Deliberately narrow: one accent, .el two market colours, .el four text weights, .el one
-   border. The previous UI failed because every section invented its own card, .el pill and gradient, .el so nothing had hierarchy. Here, .el emphasis comes from
+   Deliberately narrow: one accent, two market colours, four text weights, one
+   border. The previous UI failed because every section invented its own card,
+   pill and gradient, so nothing had hierarchy. Here, emphasis comes from
    type scale and whitespace; colour is reserved for market direction.
 
    Contrast: every text token below clears 4.5:1 on --surface. --text-3 is the
-   lightest permitted and is only for labels at >=11px semibold, .el never body.
+   lightest permitted and is only for labels at >=11px semibold, never body.
    ========================================================================= */
 
 :root {
-  /* Surfaces — a very light neutral ground so white tables read as raised */
-  --page: #f7f8fa;
-  --surface: #ffffff;
-  --surface-2: #f2f4f7;
-  --surface-hover: #f7f9fc;
+  /* Surfaces — dark ground so raised panels read as elevated, matching the
+     premium dark identity already established on the login/landing pages. */
+  --page: #0b0c10;
+  --surface: #15171d;
+  --surface-2: #1c1f27;
+  --surface-hover: #21242d;
 
   /* One border weight everywhere. Two would imply a hierarchy we don't have. */
-  --line: #e3e6ec;
-  --line-strong: #cdd2dc;
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.18);
 
-  /* Text — 4 steps, all AA on white */
-  --text-1: #10131a;   /* headings, prices           16.9:1 */
-  --text-2: #3d4453;   /* body                        9.4:1 */
-  --text-3: #646c7d;   /* labels, secondary           5.6:1 */
-  --text-inv: #ffffff;
+  /* Text — 4 steps, all AA on --surface (checked against #15171d):
+     --text-1 ~15.5:1, --text-2 ~8.6:1, --text-3 ~5.0:1 */
+  --text-1: #f5f6f8;   /* headings, prices */
+  --text-2: #b8bfcc;   /* body */
+  --text-3: #838b9c;   /* labels, secondary */
+  --text-inv: #0b0c10; /* text drawn on a --text-1-filled surface (e.g. .chip.on) — must go dark now that --text-1 is near-white */
 
   /* One accent. Used for interactive affordance only, never for data. */
-  --accent: #2b5cff;
-  --accent-hover: #1e49d6;
-  --accent-soft: #eef2ff;
+  --accent: #5b8cff;
+  --accent-hover: #7ba3ff;   /* dark UI hover reads as brighter, not darker */
+  --accent-soft: rgba(91, 140, 255, 0.14);   /* translucent, not a solid pale tint — a solid light box would look wrong floating on a dark surface */
 
   /* Market direction. Restrained — these carry meaning, so they must not
-     compete with decoration elsewhere. */
-  --up: #0f9d58;
-  --up-soft: #e8f5ee;
-  --down: #d93025;
-  --down-soft: #fdecea;
-  --flat: #646c7d;
+     compete with decoration elsewhere. Brightened from the light-theme hues
+     so they still read clearly against a dark surface. */
+  --up: #22c55e;
+  --up-soft: rgba(34, 197, 94, 0.14);
+  --down: #f36760;
+  --down-soft: rgba(243, 103, 96, 0.14);
+  --flat: #838b9c;
 
-  --warn: #b26a00;
-  --warn-soft: #fff6e5;
+  --warn: #f2b84b;
+  --warn-soft: rgba(242, 184, 75, 0.14);
 
   --r-sm: 4px;
   --r: 6px;
   --r-lg: 10px;
 
-  --shadow-sm: 0 1px 2px rgba(16, 19, 26, 0.06);
-  --shadow-pop: 0 8px 28px rgba(16, 19, 26, 0.14);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.55);
 
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-num: "Inter", -apple-system, sans-serif;
@@ -291,9 +295,9 @@
   white-space: nowrap;
   border: 1px solid transparent;
 }
-.el .badge-buy   { background: var(--up-soft);   color: var(--up);   border-color: rgba(15,157,88,0.22); }
-.el .badge-wait  { background: var(--warn-soft); color: var(--warn); border-color: rgba(178,106,0,0.22); }
-.el .badge-avoid { background: var(--down-soft); color: var(--down); border-color: rgba(217,48,37,0.22); }
+.el .badge-buy   { background: var(--up-soft);   color: var(--up);   border-color: rgba(34,197,94,0.3); }
+.el .badge-wait  { background: var(--warn-soft); color: var(--warn); border-color: rgba(242,184,75,0.3); }
+.el .badge-avoid { background: var(--down-soft); color: var(--down); border-color: rgba(243,103,96,0.3); }
 .el .badge-mute  { background: var(--surface-2); color: var(--text-3); border-color: var(--line); }
 
 .el .score {
@@ -417,6 +421,33 @@
 .el .search-row:last-child { border-bottom: 0; }
 .el .search-row:hover:not(:disabled) { background: var(--surface-hover); }
 .el .search-row:disabled { opacity: 0.55; cursor: default; }
+
+.el /* The nav's stock lookup (StockSearch.jsx) is styled by .stock-search* in
+   index.css, unscoped, reading index.css's own (light) token set — not this
+   file's. Left alone it stays light inside an otherwise-dark nav bar, so it
+   gets its own small dark override here rather than a global index.css change
+   that would also repaint out-of-scope pages that still depend on it. */
+.el .stock-search input {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text-1);
+}
+.el .stock-search input::placeholder { color: var(--text-3); }
+.el .stock-search input:focus { border-color: var(--accent); background: var(--surface); }
+.el .stock-search-icon { color: var(--text-3); }
+.el .stock-search-panel {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-pop);
+}
+.el .stock-search-note { color: var(--text-3); }
+.el .stock-search-error { color: var(--down); }
+.el .stock-search-hit { border-bottom: 1px solid var(--line); }
+.el .stock-search-hit:hover:not(:disabled) { background: var(--surface-hover); }
+.el .stock-search-sym { color: var(--text-1); }
+.el .stock-search-name { color: var(--text-3); }
+.el .stock-search-tag.ready { background: var(--up-soft); color: var(--up); }
+.el .stock-search-tag.new   { background: var(--accent-soft); color: var(--accent); }
 
 .el /* ------------------------------------------------------------ responsive - */
 /* Mobile keeps symbol / price / change / score / signal — the five fields you

@@ -6,6 +6,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import PaperTradingPage from "./pages/PaperTradingPage";
+import AITradingPage from "./pages/AITradingPage";
 import StocksPage from "./pages/StocksPage";
 import SectorsPage from "./pages/SectorsPage";
 import IntradayPage from "./pages/IntradayPage";
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/stocks" element={<ProtectedRoute><StocksPage /></ProtectedRoute>} />
             <Route path="/sectors" element={<ProtectedRoute><SectorsPage /></ProtectedRoute>} />
             <Route path="/paper" element={<ProtectedRoute><PaperTradingPage /></ProtectedRoute>} />
+            <Route path="/ai-trading" element={<ProtectedRoute><AITradingPage /></ProtectedRoute>} />
             <Route
               path="/today"
               element={

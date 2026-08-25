@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import setup_logging
 from app.core.scheduler import (
+    ai_trading_loop,
     daily_price_update_loop,
     daily_signals_loop,
     fast_quote_loop,
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(daily_signals_loop(), name="daily-signals"),
         asyncio.create_task(weekly_universe_rebuild_loop(), name="weekly-universe-rebuild"),
         asyncio.create_task(fundamentals_refresh_loop(), name="fundamentals-refresh"),
+        asyncio.create_task(ai_trading_loop(), name="ai-trading"),
     ]
     yield
     for task in tasks:

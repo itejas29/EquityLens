@@ -1,3 +1,4 @@
+from app.models.ai_trading_run import AITradingRun
 from app.models.backtest import Backtest
 from app.models.daily_signal import DailySignal
 from app.models.fundamentals import Fundamentals
@@ -13,6 +14,7 @@ from app.models.user import User
 from app.models.watchlist import Watchlist
 
 __all__ = [
+    "AITradingRun",
     "Backtest",
     "DailySignal",
     "PaperAccount",

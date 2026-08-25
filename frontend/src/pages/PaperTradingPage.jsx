@@ -111,11 +111,10 @@ function OrderTicket({ quotes, onOrderSuccess }) {
   const estimatedCost = livePrice != null && qty > 0 ? livePrice * Number(qty) : null;
 
   const isBuy = side === "buy";
-  // Hardcoded hex — CSS variables don't reliably resolve in inline styles on deployed builds
-  const BUY_COLOR  = "#0f9d58";
-  const SELL_COLOR = "#d93025";
-  const BUY_SOFT   = "#e8f5ee";
-  const SELL_SOFT  = "#fdecea";
+  const BUY_COLOR  = "var(--up)";
+  const SELL_COLOR = "var(--down)";
+  const BUY_SOFT   = "var(--up-soft)";
+  const SELL_SOFT  = "var(--down-soft)";
   const activeColor = isBuy ? BUY_COLOR : SELL_COLOR;
   const activeSoft  = isBuy ? BUY_SOFT  : SELL_SOFT;
 
@@ -148,15 +147,15 @@ function OrderTicket({ quotes, onOrderSuccess }) {
 
   return (
     <div style={{
-      background: "#ffffff",
-      border: "1px solid #e3e6ec",
+      background: "var(--surface)",
+      border: "1px solid var(--line)",
       borderRadius: 12,
       overflow: "hidden",
-      boxShadow: "0 2px 12px rgba(16,19,26,0.07)",
+      boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
     }}>
 
       {/* BUY / SELL tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid #e3e6ec" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid var(--line)" }}>
         {[
           { s: "buy",  label: "▲  Buy",  color: BUY_COLOR,  soft: BUY_SOFT  },
           { s: "sell", label: "▼  Sell", color: SELL_COLOR, soft: SELL_SOFT },
@@ -171,8 +170,8 @@ function OrderTicket({ quotes, onOrderSuccess }) {
                 border: "none",
                 borderBottom: `3px solid ${active ? color : "transparent"}`,
                 marginBottom: -1,
-                background: active ? soft : "#fafbfc",
-                color: active ? color : "#646c7d",
+                background: active ? soft : "var(--surface-2)",
+                color: active ? color : "var(--text-3)",
                 fontFamily: "inherit",
                 fontWeight: 700, fontSize: 13.5,
                 letterSpacing: "0.05em", textTransform: "uppercase",
@@ -195,7 +194,7 @@ function OrderTicket({ quotes, onOrderSuccess }) {
           <label htmlFor="pt-sym" style={{
             display: "block", fontSize: 10.5, fontWeight: 700,
             letterSpacing: "0.07em", textTransform: "uppercase",
-            color: "#646c7d", marginBottom: 8,
+            color: "var(--text-3)", marginBottom: 8,
           }}>Stock Symbol</label>
           <input
             id="pt-sym"
@@ -211,10 +210,10 @@ function OrderTicket({ quotes, onOrderSuccess }) {
             style={{
               display: "block", width: "100%", height: 46,
               padding: "0 14px",
-              border: `2px solid ${focused ? activeColor : "#e3e6ec"}`,
+              border: `2px solid ${focused ? activeColor : "var(--line)"}`,
               borderRadius: 8,
-              background: focused ? "#fafbfc" : "#f7f8fa",
-              color: "#10131a",
+              background: focused ? "var(--surface-2)" : "var(--page)",
+              color: "var(--text-1)",
               fontFamily: "'Inter', -apple-system, sans-serif",
               fontWeight: 800, fontSize: 16, letterSpacing: "0.05em",
               outline: "none", boxSizing: "border-box",
@@ -228,13 +227,13 @@ function OrderTicket({ quotes, onOrderSuccess }) {
               justifyContent: "space-between",
               padding: "8px 12px", background: activeSoft, borderRadius: 6,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#646c7d" }}>LTP</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)" }}>LTP</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: activeColor, fontFamily: "'Inter', sans-serif" }}>
                 {inr(livePrice)}
               </span>
             </div>
           ) : sym ? (
-            <p style={{ margin: "6px 0 0", fontSize: 12, color: "#646c7d" }}>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-3)" }}>
               ⏳ Price loading from live feed…
             </p>
           ) : null}
@@ -246,12 +245,12 @@ function OrderTicket({ quotes, onOrderSuccess }) {
             <label htmlFor="pt-qty" style={{
               display: "block", fontSize: 10.5, fontWeight: 700,
               letterSpacing: "0.07em", textTransform: "uppercase",
-              color: "#646c7d", marginBottom: 8,
+              color: "var(--text-3)", marginBottom: 8,
             }}>Quantity</label>
             <div style={{
               display: "flex", alignItems: "stretch",
-              border: "2px solid #e3e6ec", borderRadius: 8,
-              overflow: "hidden", background: "#f7f8fa",
+              border: "2px solid var(--line)", borderRadius: 8,
+              overflow: "hidden", background: "var(--page)",
             }}>
               {[{ delta: -1, label: "−", side: "left" }, { delta: 1, label: "+", side: "right" }].slice(0, 1).map(({ delta, label }) => (
                 <button
@@ -260,9 +259,9 @@ function OrderTicket({ quotes, onOrderSuccess }) {
                   tabIndex={-1}
                   style={{
                     width: 48, minHeight: 46, border: "none",
-                    borderRight: "1px solid #e3e6ec",
-                    background: "#ffffff", fontSize: 22, fontWeight: 400,
-                    color: "#3d4453", cursor: "pointer", flexShrink: 0,
+                    borderRight: "1px solid var(--line)",
+                    background: "var(--surface)", fontSize: 22, fontWeight: 400,
+                    color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontFamily: "inherit",
                     WebkitAppearance: "none", appearance: "none",
@@ -279,7 +278,7 @@ function OrderTicket({ quotes, onOrderSuccess }) {
                   flex: 1, minHeight: 46, border: "none",
                   background: "transparent", textAlign: "center",
                   fontFamily: "'Inter', -apple-system, sans-serif",
-                  fontWeight: 800, fontSize: 18, color: "#10131a",
+                  fontWeight: 800, fontSize: 18, color: "var(--text-1)",
                   outline: "none",
                   MozAppearance: "textfield", WebkitAppearance: "none",
                 }}
@@ -289,9 +288,9 @@ function OrderTicket({ quotes, onOrderSuccess }) {
                 tabIndex={-1}
                 style={{
                   width: 48, minHeight: 46, border: "none",
-                  borderLeft: "1px solid #e3e6ec",
-                  background: "#ffffff", fontSize: 22, fontWeight: 400,
-                  color: "#3d4453", cursor: "pointer", flexShrink: 0,
+                  borderLeft: "1px solid var(--line)",
+                  background: "var(--surface)", fontSize: 22, fontWeight: 400,
+                  color: "var(--text-2)", cursor: "pointer", flexShrink: 0,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontFamily: "inherit",
                   WebkitAppearance: "none", appearance: "none",
@@ -301,9 +300,9 @@ function OrderTicket({ quotes, onOrderSuccess }) {
           </div>
         ) : (
           <div style={{
-            padding: "12px 14px", background: "#fdecea",
-            borderRadius: 8, border: "1px solid rgba(217,48,37,0.25)",
-            fontSize: 13, color: "#d93025", fontWeight: 600, lineHeight: 1.55,
+            padding: "12px 14px", background: "var(--down-soft)",
+            borderRadius: 8, border: "1px solid rgba(243,103,96,0.3)",
+            fontSize: 13, color: "var(--down)", fontWeight: 600, lineHeight: 1.55,
           }}>
             ⚠ This will close your entire position in {sym || "the stock"}.
           </div>
@@ -313,18 +312,18 @@ function OrderTicket({ quotes, onOrderSuccess }) {
         {isBuy && (
           <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr",
-            gap: 1, background: "#e3e6ec",
+            gap: 1, background: "var(--line)",
             borderRadius: 8, overflow: "hidden",
           }}>
             {[
               { label: "Price / share", val: livePrice != null ? inr(livePrice) : "—", hi: false },
               { label: "Est. Total",    val: estimatedCost != null ? inr(estimatedCost) : "—", hi: estimatedCost != null },
             ].map(({ label, val, hi }) => (
-              <div key={label} style={{ padding: "10px 14px", background: "#f7f8fa" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#646c7d", marginBottom: 4 }}>
+              <div key={label} style={{ padding: "10px 14px", background: "var(--page)" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-3)", marginBottom: 4 }}>
                   {label}
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: hi ? activeColor : "#10131a", fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: hi ? activeColor : "var(--text-1)", fontFamily: "'Inter', sans-serif" }}>
                   {val}
                 </div>
               </div>
@@ -336,9 +335,9 @@ function OrderTicket({ quotes, onOrderSuccess }) {
         {msg && (
           <div role="status" style={{
             padding: "11px 14px", borderRadius: 8,
-            background: msg.ok ? "#e8f5ee" : "#fdecea",
-            border: `1px solid ${msg.ok ? "rgba(15,157,88,0.3)" : "rgba(217,48,37,0.3)"}`,
-            color: msg.ok ? "#0f9d58" : "#d93025",
+            background: msg.ok ? "var(--up-soft)" : "var(--down-soft)",
+            border: `1px solid ${msg.ok ? "rgba(34,197,94,0.3)" : "rgba(243,103,96,0.3)"}`,
+            color: msg.ok ? "var(--up)" : "var(--down)",
             fontSize: 13, fontWeight: 600,
             display: "flex", alignItems: "flex-start", gap: 8, lineHeight: 1.55,
           }}>
@@ -364,9 +363,8 @@ function OrderTicket({ quotes, onOrderSuccess }) {
             appearance: "none",
             border: "none",
             outline: "none",
-            /* colors — explicit hex, never CSS vars */
-            background: placing ? "#e3e6ec" : activeColor,
-            color: placing ? "#646c7d" : "#ffffff",
+            background: placing ? "var(--line-strong)" : activeColor,
+            color: placing ? "var(--text-3)" : "#ffffff",
             /* typography */
             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
             fontWeight: 800,
@@ -375,8 +373,8 @@ function OrderTicket({ quotes, onOrderSuccess }) {
             /* shape + shadow */
             borderRadius: 8,
             boxShadow: placing ? "none" : isBuy
-              ? "0 4px 18px rgba(15,157,88,0.4)"
-              : "0 4px 18px rgba(217,48,37,0.38)",
+              ? "0 4px 18px rgba(34,197,94,0.4)"
+              : "0 4px 18px rgba(243,103,96,0.38)",
             cursor: placing ? "not-allowed" : "pointer",
             transition: "all 0.18s",
             opacity: placing ? 0.75 : 1,
@@ -390,7 +388,7 @@ function OrderTicket({ quotes, onOrderSuccess }) {
           }
         </button>
 
-        <p style={{ fontSize: 11, color: "#999ba8", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
+        <p style={{ fontSize: 11, color: "var(--text-3)", margin: 0, lineHeight: 1.7, textAlign: "center" }}>
           Fills at live price + costs · Sell closes entire position
         </p>
       </div>

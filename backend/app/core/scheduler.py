@@ -45,6 +45,7 @@ from app.core.cache import (
     set_live_prices,
     set_session_snapshot,
 )
+from app.core.ai_trading_config import RUN_HOUR as AI_TRADING_RUN_HOUR, RUN_MINUTE as AI_TRADING_RUN_MINUTE
 from app.core.daily_signals_config import GENERATION_HOUR, GENERATION_MINUTE
 from app.core.fast_quotes_config import (
     BACKOFF_AFTER_FAILURES,
@@ -909,3 +910,73 @@ async def fundamentals_refresh_loop() -> None:
             logger.info("pipeline.fundamentals.complete date=%s stocks=%d", today, count)
         except Exception as exc:
             logger.exception("Fundamentals refresh failed: %s", exc)
+
+
+# --- AI trading (automated execution of the V1 shortlist) ---
+
+
+def _ai_trading_done_today(as_of: date_type) -> bool:
+    from app.models.ai_trading_run import AITradingRun
+
+    db = SessionLocal()
+    try:
+        return db.query(AITradingRun).filter(AITradingRun.run_date == as_of).first() is not None
+    finally:
+        db.close()
+
+
+def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int]:
+    from app.models.ai_trading_run import AITradingRun
+    from app.services.ai_trading import run_ai_trading_cycle
+
+    db = SessionLocal()
+    try:
+        run = AITradingRun(run_date=as_of, status="running")
+        db.add(run)
+        db.flush()
+        try:
+            result = run_ai_trading_cycle(db, as_of)
+        except Exception:
+            run.status = "failed"
+            db.commit()
+            raise
+
+        run.status = "complete"
+        run.bought_count = len(result.bought)
+        run.sold_count = len(result.sold)
+        run.regime = result.regime
+        run.finished_at = datetime.now(IST)
+        db.commit()
+        return len(result.bought), len(result.sold)
+    finally:
+        db.close()
+
+
+async def ai_trading_loop() -> None:
+    """Executes today's V1 shortlist against the AI-managed paper account —
+    once per trading day, shortly after the 09:15 IST signal publish.
+    """
+    logger.info(
+        "AI trading loop started — runs at %02d:%02d IST", AI_TRADING_RUN_HOUR, AI_TRADING_RUN_MINUTE
+    )
+    while True:
+        await asyncio.sleep(60)
+        try:
+            now = datetime.now(IST)
+            if now.weekday() >= 5:
+                continue
+            if (now.hour, now.minute) < (AI_TRADING_RUN_HOUR, AI_TRADING_RUN_MINUTE):
+                continue
+
+            today = now.date()
+            if await asyncio.get_event_loop().run_in_executor(_executor, _ai_trading_done_today, today):
+                continue
+            if _heavy_job_active:
+                continue
+
+            logger.info("ai_trading.starting date=%s", today)
+            async with _heavy_job():
+                bought, sold = await asyncio.get_event_loop().run_in_executor(_executor, _run_ai_trading_cycle, today)
+            logger.info("ai_trading.complete date=%s bought=%d sold=%d", today, bought, sold)
+        except Exception as exc:
+            logger.exception("AI trading cycle failed: %s", exc)

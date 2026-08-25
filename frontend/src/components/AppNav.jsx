@@ -19,6 +19,7 @@ const LINKS = [
   { to: "/stocks", label: "Stocks" },
   { to: "/sectors", label: "Sectors" },
   { to: "/paper", label: "Paper Trading" },
+  { to: "/ai-trading", label: "AI Trading" },
   { to: "/watchlist", label: "Watchlist" },
   { to: "/portfolio", label: "Portfolio" },
   { to: "/news", label: "News" },

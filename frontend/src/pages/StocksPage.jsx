@@ -170,7 +170,7 @@ export default function StocksPage() {
             </table>
           </div>
           
-          <div className="pagination" style={{ padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-1)" }}>
+          <div className="pagination" style={{ padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--line)" }}>
              <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</button>
              <span style={{ fontSize: 12, color: "var(--text-3)" }}>Page {page} of {Math.ceil(view.length / PAGE_SIZE)}</span>
              <button className="btn btn-sm" disabled={page >= Math.ceil(view.length / PAGE_SIZE)} onClick={() => setPage(page + 1)}>Next</button>
