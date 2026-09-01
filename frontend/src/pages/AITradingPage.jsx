@@ -7,7 +7,7 @@ import {
 } from "../components/ui/Primitives";
 import { useLivePrices } from "../lib/useLivePrices";
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis
+  Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 
 /* ---------------------------------------------------------------- helpers -- */
@@ -140,32 +140,49 @@ const PERIODS = [
   { label: "All", days: Infinity },
 ];
 
-function PerformanceChart({ data }) {
+function PerformanceChart({ data, virtualCapital }) {
   const [period, setPeriod] = useState("All");
 
+  // NIFTY-equivalent equity: what the same starting capital would be worth
+  // just holding the index, computed from nifty_return — already a cumulative
+  // % return from account inception, same basis as total_equity's own
+  // cumulative_return (see record_paper_snapshot in forward_testing.py) — so
+  // the two lines are directly comparable in the same ₹ units, no separate axis.
+  const withBenchmark = useMemo(() => {
+    if (!data?.length || !virtualCapital) return data || [];
+    return data.map((d) => ({
+      ...d,
+      nifty_equity: virtualCapital * (1 + (d.nifty_return ?? 0) / 100),
+    }));
+  }, [data, virtualCapital]);
+
   const filtered = useMemo(() => {
-    if (!data?.length) return [];
+    if (!withBenchmark.length) return [];
     const p = PERIODS.find((x) => x.label === period);
-    if (!p || p.days === Infinity) return data;
+    if (!p || p.days === Infinity) return withBenchmark;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - p.days);
-    return data.filter((d) => new Date(d.date) >= cutoff);
-  }, [data, period]);
+    return withBenchmark.filter((d) => new Date(d.date) >= cutoff);
+  }, [withBenchmark, period]);
 
   const stats = useMemo(() => {
     if (!filtered.length) return null;
     const first = filtered[0].total_equity;
     const last = filtered[filtered.length - 1].total_equity;
     const ret = ((last - first) / first) * 100;
-    return { first, last, ret };
+    const niftyFirst = filtered[0].nifty_equity;
+    const niftyLast = filtered[filtered.length - 1].nifty_equity;
+    const niftyRet = niftyFirst ? ((niftyLast - niftyFirst) / niftyFirst) * 100 : null;
+    return { first, last, ret, niftyRet };
   }, [filtered]);
 
   if (!data || !data.length) {
     return <EmptyState title="No equity data" body="No snapshots recorded yet." />;
   }
 
-  const minE = Math.min(...filtered.map((d) => d.total_equity));
-  const maxE = Math.max(...filtered.map((d) => d.total_equity));
+  const allValues = filtered.flatMap((d) => [d.total_equity, d.nifty_equity]).filter((v) => v != null);
+  const minE = Math.min(...allValues);
+  const maxE = Math.max(...allValues);
   const pad = (maxE - minE) * 0.12 || 1000;
 
   return (
@@ -191,6 +208,14 @@ function PerformanceChart({ data }) {
                   {stats.ret > 0 ? "+" : ""}{stats.ret.toFixed(2)}%
                 </div>
               </div>
+              {stats.niftyRet != null && (
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)" }}>vs NIFTY</div>
+                  <div className={`num ${stats.ret - stats.niftyRet > 0 ? "up" : stats.ret - stats.niftyRet < 0 ? "down" : ""}`} style={{ fontSize: 14, fontWeight: 700 }}>
+                    {stats.ret - stats.niftyRet > 0 ? "+" : ""}{(stats.ret - stats.niftyRet).toFixed(2)}%
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -213,9 +238,20 @@ function PerformanceChart({ data }) {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 16, padding: "10px 18px 0", fontSize: 11.5 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-3)" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--accent)", display: "inline-block" }} />
+          AI Portfolio
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-3)" }}>
+          <span style={{ width: 10, height: 2, background: "var(--warn)", display: "inline-block" }} />
+          NIFTY 50 (same capital)
+        </span>
+      </div>
+
       <div style={{ width: "100%", height: 260, padding: "12px 8px 0" }}>
         <ResponsiveContainer>
-          <AreaChart data={filtered} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+          <ComposedChart data={filtered} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
             <defs>
               <linearGradient id="aiEqGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
@@ -231,11 +267,12 @@ function PerformanceChart({ data }) {
             <Tooltip
               contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--r)", boxShadow: "var(--shadow-pop)", fontSize: 13 }}
               itemStyle={{ color: "var(--text-1)", fontWeight: 600 }}
-              formatter={(value) => [inr(value), "Portfolio Value"]}
+              formatter={(value, name) => [inr(value), name === "total_equity" ? "AI Portfolio" : "NIFTY 50"]}
               labelFormatter={(label) => fmtDate(label)}
             />
             <Area type="monotone" dataKey="total_equity" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#aiEqGrad)" dot={false} activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--surface)", strokeWidth: 2 }} />
-          </AreaChart>
+            <Line type="monotone" dataKey="nifty_equity" stroke="var(--warn)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: "var(--warn)", stroke: "var(--surface)", strokeWidth: 2 }} />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -440,7 +477,7 @@ export default function AITradingPage() {
 
       <section style={{ marginBottom: 28 }}>
         <SectionHeader title="Performance" />
-        <PerformanceChart data={curve} />
+        <PerformanceChart data={curve} virtualCapital={acct.virtual_capital} />
       </section>
 
       <section>

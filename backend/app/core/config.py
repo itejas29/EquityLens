@@ -39,5 +39,11 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
+    # Optional — AI trading activity notifications (app/services/notifications.py).
+    # Notifications are silently skipped when either is unset, so this is opt-in
+    # and can never break the trading loop for a deployment that hasn't set them.
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
 
 settings = Settings()

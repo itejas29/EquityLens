@@ -925,9 +925,24 @@ def _ai_trading_done_today(as_of: date_type) -> bool:
         db.close()
 
 
+def _ai_trading_notification_text(result, equity: float | None) -> str:
+    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> (regime: {result.regime})"]
+    for b in result.bought:
+        lines.append(f"🟢 Bought {b['quantity']} {b['symbol']} @ ₹{b['price']:.2f}")
+    for s in result.sold:
+        pnl = s["pnl"]
+        sign = "+" if pnl >= 0 else "-"
+        lines.append(f"🔴 Sold {s['symbol']} ({s['reason']}) — {sign}₹{abs(pnl):.2f}")
+    if equity is not None:
+        lines.append(f"Equity: ₹{equity:,.2f}")
+    return "\n".join(lines)
+
+
 def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int]:
     from app.models.ai_trading_run import AITradingRun
-    from app.services.ai_trading import run_ai_trading_cycle
+    from app.services.ai_trading import get_ai_trader_account, run_ai_trading_cycle
+    from app.services.notifications import send_telegram_message
+    from app.services.paper_trading import get_account_summary
 
     db = SessionLocal()
     try:
@@ -947,6 +962,13 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int]:
         run.regime = result.regime
         run.finished_at = datetime.now(IST)
         db.commit()
+
+        if result.bought or result.sold:
+            account = get_ai_trader_account(db)
+            equity = get_account_summary(db, account.user_id).equity
+            db.commit()
+            send_telegram_message(_ai_trading_notification_text(result, equity))
+
         return len(result.bought), len(result.sold)
     finally:
         db.close()
