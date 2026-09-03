@@ -63,8 +63,24 @@ BASE = StrategyParams.for_appetite("moderate")
 V1 = replace(BASE, **FROZEN, sizing_method="equal_weight", trend_confirm_days=5)
 
 # (label, params, transaction_cost_pct)
+#
+# CACHE CORRECTNESS — why arms are grouped by universe size below.
+#
+# backtest_scoring.compute_point_in_time_scores caches on `as_of` ALONE, with no
+# reference to which stocks were in scope. Phase 17 could therefore share one
+# cache across every arm safely, because all its arms scored the same 500-stock
+# universe and differed only in a gate applied after scoring.
+#
+# That does not hold here: universe depth changes the scoring INPUT. Sharing one
+# cache across depths means the first arm to touch a rebalance date populates it
+# and every later arm silently reuses that arm's universe. The first run of this
+# experiment did exactly that and returned top300/500/750/1000 byte-identical on
+# every metric in all 16 folds — while the cost arms, whose costs apply at trade
+# execution downstream of scoring, did differ. That asymmetry is the fingerprint.
+#
+# So: one cache per distinct universe_top_n. The three 1000-name cost arms share
+# a cache legitimately — same universe, cost applied after scoring.
 ARMS: list[tuple[str, StrategyParams, float]] = [
-    ("V1_top300",            replace(V1, universe_top_n=300),  DEFAULT_TRANSACTION_COST_PCT),
     ("V1_top500",            replace(V1, universe_top_n=500),  DEFAULT_TRANSACTION_COST_PCT),
     ("V1_top750",            replace(V1, universe_top_n=750),  DEFAULT_TRANSACTION_COST_PCT),
     ("V1_top1000",           replace(V1, universe_top_n=1000), DEFAULT_TRANSACTION_COST_PCT),
@@ -115,9 +131,14 @@ def check_universe_depth(db) -> int:
 
 
 def main() -> None:
-    db, cache = SessionLocal(), {}
+    db = SessionLocal()
     active = check_universe_depth(db)
     log.info("universe depth OK — %d active stocks ingested", active)
+
+    # One cache per distinct universe depth — see the note above ARMS.
+    caches: dict[int, dict] = {p.universe_top_n: {} for _, p, _ in ARMS}
+    log.info("allocated %d scoring caches (one per universe depth: %s)",
+             len(caches), sorted(caches))
 
     rec = {"experiment": "phase18_universe_size", "active_stocks": active,
            "arms": [a[0] for a in ARMS], "folds": []}
@@ -131,7 +152,7 @@ def main() -> None:
         fold += 1
         entry = {"fold": fold, "test": [str(te), str(tt)], "arms": {}}
         for label, params, cost in ARMS:
-            r = go(db, params, cost, te, tt, cache)
+            r = go(db, params, cost, te, tt, caches[params.universe_top_n])
             entry["arms"][label] = r.metrics
             if "benchmark" not in entry:
                 entry["benchmark"] = r.benchmark_metrics
@@ -168,6 +189,19 @@ def main() -> None:
               f"{str(agg(label,'avg_capital_deployed_pct')):>8}{str(agg(label,'num_trades')):>8}"
               f"{f'{wins}/{len(F)}':>8}")
     print(f"  {'NIFTY50':<24}{round(mean([b for b in bench if b is not None]),2):>8}")
+
+    # Degeneracy check. Different universe depths selecting from different
+    # candidate pools cannot produce identical returns in every fold; if they
+    # do, the depths were not really varied (the first run of this experiment
+    # returned exactly that, from a scoring cache shared across depths). Flag it
+    # rather than let a reader take the table at face value.
+    depth_arms = ["V1_top500", "V1_top750", "V1_top1000"]
+    per_fold = [tuple(round(f["arms"][a].get("total_return_pct") or 0, 6) for a in depth_arms)
+                for f in F]
+    if all(len(set(row)) == 1 for row in per_fold):
+        print("\n  *** SUSPECT: every depth arm returned identical results in all folds.")
+        print("      Depth did not actually vary — do not read this as 'depth adds nothing'.")
+        print("      Check that each depth got its own scoring cache.")
 
     # The decision line. Depth is only worth shipping if it still wins once the
     # deeper names are charged what they actually cost to trade.
