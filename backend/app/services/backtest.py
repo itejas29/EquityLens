@@ -49,7 +49,17 @@ class BacktestConfig:
     params: object = None
     # Caller-owned {as_of_date: indicator snapshot}. Shared across a parameter
     # sweep so the expensive indicator pass runs once per date, not per config.
+    # NOTE: keyed by date alone, with no reference to which stocks were in
+    # scope, so a cache may only be shared between runs whose universe is
+    # identical. Sharing one across differing universes silently gives every
+    # later run the first run's universe.
     indicator_cache: dict | None = None
+    # Explicit universe, bypassing both the is_active query and universe_top_n.
+    # Exists so a study can compare universe CONSTRUCTIONS (point-in-time vs
+    # current liquidity, different measurement windows, random subsets) rather
+    # than only sizes — universe_top_n can rank exactly one way, at one date.
+    # None -> unchanged behaviour.
+    universe_stock_ids: list[int] | None = None
 
 
 @dataclass
@@ -443,14 +453,20 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
             ),
         )
 
-    stocks = db.query(Stock).filter(Stock.is_active == True).order_by(Stock.symbol).all()  # noqa: E712
+    if config.universe_stock_ids is not None:
+        stocks = (db.query(Stock)
+                  .filter(Stock.id.in_(config.universe_stock_ids))
+                  .order_by(Stock.symbol).all())
+    else:
+        stocks = db.query(Stock).filter(Stock.is_active == True).order_by(Stock.symbol).all()  # noqa: E712
 
     # Universe subset (Phase 16 §6): keep the top N by 20-day traded value,
     # measured point-in-time at the backtest start using the same liquidity
     # definition the universe builder uses. Applied before anything else so
-    # every downstream stage sees the reduced set.
+    # every downstream stage sees the reduced set. Skipped when an explicit
+    # universe was injected — that caller has already decided membership.
     top_n = getattr(config.params, "universe_top_n", None) if config.params else None
-    if top_n:
+    if top_n and config.universe_stock_ids is None:
         ranked = []
         for st in stocks:
             df = _load_ohlcv_df(db, st.id)
