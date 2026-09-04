@@ -34,8 +34,42 @@ from app.services.paper_trading import (
 class AITradingCycleResult:
     as_of: date_type
     regime: str
+    rebalanced: bool = False
     bought: list[dict] = field(default_factory=list)
     sold: list[dict] = field(default_factory=list)
+
+
+def _is_rebalance_day(db: Session, as_of: date_type) -> bool:
+    """V1 rebalances MONTHLY, and that cadence is load-bearing.
+
+    backtest._rebalance_dates takes the first trading day of each month, and
+    backtest.py gates BOTH the bear-regime exposure trim and all new entries
+    behind it; only stop/target/horizon are evaluated every bar.
+
+    The first live implementation ran the trim and the entries daily, on the
+    reasoning that checking an exposure cap more often is strictly safer. It is
+    not. With bear exposure capped at 25% and both legs firing daily, the loop
+    becomes: trim to the cap, buy back under the cap, let marks drift, trim
+    again — every day. Live did exactly that for nine consecutive bear-regime
+    sessions (bought=1 sold=1 each day), churning the same names and closing
+    HFCL at 223.87 against a 212.71 stop that never triggered, for -15,585.
+    Positions could never reach their targets because the trim reached them
+    first. It also meant production was running a cadence no backtest had ever
+    validated.
+
+    First run of a calendar month is the rebalance. Derived from AITradingRun
+    rather than the calendar so a missed day (holiday, outage) doesn't skip the
+    month's only rebalance — whichever day the loop first runs takes it. The
+    caller creates this cycle's own row before calling, hence `< as_of`.
+    """
+    from app.models.ai_trading_run import AITradingRun
+
+    prior_this_month = (
+        db.query(AITradingRun)
+        .filter(AITradingRun.run_date >= as_of.replace(day=1), AITradingRun.run_date < as_of)
+        .first()
+    )
+    return prior_this_month is None
 
 
 def get_ai_trader_account(db: Session) -> PaperAccount:
@@ -60,7 +94,8 @@ def _open_trades(db: Session, account: PaperAccount) -> list[PaperTrade]:
     return db.query(PaperTrade).filter(PaperTrade.account_id == account.id, PaperTrade.status == "open").all()
 
 
-def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type, regime: dict) -> list[dict]:
+def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type,
+               regime: dict, is_rebalance: bool) -> list[dict]:
     results: list[dict] = []
 
     # Pass 1: each position's own stop/target/horizon — independent of every other holding.
@@ -85,13 +120,12 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
             trade.exit_reason = reason
             results.append({"symbol": stock.symbol, "reason": reason, "pnl": float(trade.pnl)})
 
-    # Pass 2: regime exposure trim, weakest entry_score first, only if still over the cap
-    # after pass 1. Checked every cycle (daily) rather than only on a monthly rebalance
-    # date like the backtest — a deliberate simplification that is strictly more
-    # conservative (never over-exposed for more than a day), not a divergence from V1's
-    # actual exposure rule.
+    # Pass 2: regime exposure trim, weakest entry_score first, only if still over the
+    # cap after pass 1 — and only on a rebalance day, matching backtest.py, which gates
+    # this behind `today in rebalance_dates`. See _is_rebalance_day for what running it
+    # daily actually cost.
     exposure_target = regime.get("exposure", 1.0)
-    if exposure_target < 1.0:
+    if is_rebalance and exposure_target < 1.0:
         open_trades = _open_trades(db, account)
         if open_trades:
             marks = _mark_prices(db, [t.stock_id for t in open_trades])
@@ -175,9 +209,13 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
 def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     account = get_ai_trader_account(db)
     user_id = db.query(PaperAccount.user_id).filter(PaperAccount.id == account.id).scalar()
+    is_rebalance = _is_rebalance_day(db, as_of)
 
     regime = compute_market_regime(db, as_of)
-    sold = _sell_pass(db, account, user_id, as_of, regime)
-    bought = _buy_pass(db, account, user_id, as_of, regime)
+    # Stop / target / horizon are per-position rules the backtest evaluates on every
+    # bar, so they run every cycle. The regime trim and new entries are rebalance-only.
+    sold = _sell_pass(db, account, user_id, as_of, regime, is_rebalance)
+    bought = _buy_pass(db, account, user_id, as_of, regime) if is_rebalance else []
 
-    return AITradingCycleResult(as_of=as_of, regime=regime.get("regime", "unknown"), bought=bought, sold=sold)
+    return AITradingCycleResult(as_of=as_of, regime=regime.get("regime", "unknown"),
+                                rebalanced=is_rebalance, bought=bought, sold=sold)

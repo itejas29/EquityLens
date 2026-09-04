@@ -926,7 +926,8 @@ def _ai_trading_done_today(as_of: date_type) -> bool:
 
 
 def _ai_trading_notification_text(result, equity: float | None) -> str:
-    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> (regime: {result.regime})"]
+    kind = "monthly rebalance" if result.rebalanced else "daily stop/target check"
+    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> ({kind}, regime: {result.regime})"]
     for b in result.bought:
         lines.append(f"🟢 Bought {b['quantity']} {b['symbol']} @ ₹{b['price']:.2f}")
     for s in result.sold:
@@ -938,7 +939,7 @@ def _ai_trading_notification_text(result, equity: float | None) -> str:
     return "\n".join(lines)
 
 
-def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int]:
+def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
     from app.models.ai_trading_run import AITradingRun
     from app.services.ai_trading import get_ai_trader_account, run_ai_trading_cycle
     from app.services.notifications import send_telegram_message
@@ -969,7 +970,7 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int]:
             db.commit()
             send_telegram_message(_ai_trading_notification_text(result, equity))
 
-        return len(result.bought), len(result.sold)
+        return len(result.bought), len(result.sold), result.rebalanced
     finally:
         db.close()
 
@@ -998,7 +999,9 @@ async def ai_trading_loop() -> None:
 
             logger.info("ai_trading.starting date=%s", today)
             async with _heavy_job():
-                bought, sold = await asyncio.get_event_loop().run_in_executor(_executor, _run_ai_trading_cycle, today)
-            logger.info("ai_trading.complete date=%s bought=%d sold=%d", today, bought, sold)
+                bought, sold, rebalanced = await asyncio.get_event_loop().run_in_executor(
+                    _executor, _run_ai_trading_cycle, today)
+            logger.info("ai_trading.complete date=%s bought=%d sold=%d rebalance=%s",
+                        today, bought, sold, rebalanced)
         except Exception as exc:
             logger.exception("AI trading cycle failed: %s", exc)
