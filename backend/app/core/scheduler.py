@@ -119,6 +119,7 @@ _heartbeats: dict[str, datetime] = {}
 # Long enough that a coarse 300s loop is not reported stale on a normal tick.
 HEARTBEAT_STALE_AFTER_SECONDS = 900
 LOOP_RESTART_DELAY_SECONDS = 60
+WATCHDOG_INTERVAL_SECONDS = 300
 
 
 async def _idle(name: str, seconds: float) -> None:
@@ -146,6 +147,11 @@ async def supervise(name: str, factory) -> None:
     silently. CancelledError is re-raised so application shutdown still works.
     """
     while True:
+        # Register immediately. Without this a loop that dies before its first
+        # iteration never appears in _heartbeats at all, so it can never be
+        # reported stale — the watchdog would be blind to exactly the loop that
+        # failed earliest.
+        _heartbeats.setdefault(name, datetime.now(IST))
         try:
             await factory()
         except asyncio.CancelledError:
@@ -158,6 +164,48 @@ async def supervise(name: str, factory) -> None:
             logger.error("scheduler.loop.returned name=%s restarting_in=%ds",
                          name, LOOP_RESTART_DELAY_SECONDS)
         await asyncio.sleep(LOOP_RESTART_DELAY_SECONDS)
+
+
+async def health_watchdog_loop() -> None:
+    """Push an alert when a scheduler loop stops beating, and again when it
+    recovers.
+
+    supervise() restarts a loop that dies, but a loop wedged on an await is
+    never restarted and nothing about the process looks wrong from outside —
+    HTTP keeps serving and every stored figure stays plausible. The 2026-09-04
+    outage ran roughly 30 hours for exactly that reason. This is the piece that
+    turns that into minutes.
+
+    Alerts only on transitions, so a loop that stays broken produces one
+    message rather than one every five minutes.
+
+    NOTE: this cannot detect the process dying outright — it dies with it. An
+    external check against /health/pipeline covers that case and is worth
+    having alongside.
+    """
+    logger.info("Health watchdog loop started — checks every %ds", WATCHDOG_INTERVAL_SECONDS)
+    from app.services.notifications import send_telegram_message
+
+    alerted: set[str] = set()
+    while True:
+        await _idle("health-watchdog", WATCHDOG_INTERVAL_SECONDS)
+        try:
+            stale = set(heartbeat_report()["stale"]) - {"health-watchdog"}
+            if stale and stale != alerted:
+                logger.error("scheduler.watchdog.stale loops=%s", sorted(stale))
+                send_telegram_message(
+                    "<b>⚠️ EquityLens — scheduler stalled</b>\n"
+                    + "\n".join(f"• {n} (no tick for >{HEARTBEAT_STALE_AFTER_SECONDS}s)"
+                                for n in sorted(stale))
+                    + "\n\nScheduled work is not running."
+                )
+            elif not stale and alerted:
+                logger.info("scheduler.watchdog.recovered previously=%s", sorted(alerted))
+                send_telegram_message("<b>✅ EquityLens — scheduler recovered</b>\n"
+                                      f"Back to normal: {', '.join(sorted(alerted))}")
+            alerted = stale
+        except Exception as exc:
+            logger.exception("Health watchdog failed: %s", exc)
 
 
 _heavy_job_active = False
