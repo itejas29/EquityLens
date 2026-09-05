@@ -15,6 +15,7 @@ from app.core.scheduler import (
     fast_quote_loop,
     fundamentals_refresh_loop,
     price_refresh_loop,
+    supervise,
     weekly_universe_rebuild_loop,
 )
 
@@ -24,15 +25,21 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the background tasks; cancel them on shutdown."""
-    tasks = [
-        asyncio.create_task(price_refresh_loop(), name="live-price-refresh"),
-        asyncio.create_task(fast_quote_loop(), name="fast-quote-refresh"),
-        asyncio.create_task(daily_price_update_loop(), name="daily-price-update"),
-        asyncio.create_task(daily_signals_loop(), name="daily-signals"),
-        asyncio.create_task(weekly_universe_rebuild_loop(), name="weekly-universe-rebuild"),
-        asyncio.create_task(fundamentals_refresh_loop(), name="fundamentals-refresh"),
-        asyncio.create_task(ai_trading_loop(), name="ai-trading"),
+    # Every loop runs under supervise(), which logs and restarts it if it ever
+    # exits. Holding these task references for the process lifetime is what
+    # previously made a dying loop invisible: Python only warns about an
+    # unretrieved task exception from Task.__del__, which never runs while a
+    # reference is held. See the loop-liveness note in core/scheduler.py.
+    loops = [
+        ("live-price-refresh", price_refresh_loop),
+        ("fast-quote-refresh", fast_quote_loop),
+        ("daily-price-update", daily_price_update_loop),
+        ("daily-signals", daily_signals_loop),
+        ("weekly-universe-rebuild", weekly_universe_rebuild_loop),
+        ("fundamentals-refresh", fundamentals_refresh_loop),
+        ("ai-trading", ai_trading_loop),
     ]
+    tasks = [asyncio.create_task(supervise(name, factory), name=name) for name, factory in loops]
     yield
     for task in tasks:
         task.cancel()

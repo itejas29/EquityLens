@@ -97,6 +97,69 @@ _fast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fastquote
 # of (one skipped refresh is invisible to a user); the batch jobs are not
 # cheap to delay, so they get priority; hence a flag the light loops check and
 # yield to, not a lock they'd block on.
+# --- loop liveness -----------------------------------------------------------
+#
+# Every loop stamps its name here once per iteration, and supervise() restarts
+# any loop that stops. Both exist because of a real 30-hour silent outage.
+#
+# On 2026-09-04 the 20:00 incremental completed normally and then every
+# scheduler loop went quiet — no price refresh, no 09:15 shortlist, no 09:20 AI
+# trading cycle — while uvicorn kept serving HTTP and /health kept returning
+# ok. Nothing surfaced it until the AI trading run table was checked a day later.
+#
+# It was invisible because main.py holds a reference to every loop task for the
+# process lifetime. Python emits "Task exception was never retrieved" from
+# Task.__del__, which cannot run while a reference is held, so an exception
+# escaping a loop's own `except Exception` — CancelledError and anything else
+# deriving from BaseException does exactly that — killed the task with no
+# traceback anywhere. A loop that instead hangs forever on an await is equally
+# silent. Heartbeats catch both cases; the supervisor recovers from the first.
+_heartbeats: dict[str, datetime] = {}
+
+# Long enough that a coarse 300s loop is not reported stale on a normal tick.
+HEARTBEAT_STALE_AFTER_SECONDS = 900
+LOOP_RESTART_DELAY_SECONDS = 60
+
+
+async def _idle(name: str, seconds: float) -> None:
+    """Record liveness, then wait out this loop's tick."""
+    _heartbeats[name] = datetime.now(IST)
+    await asyncio.sleep(seconds)
+
+
+def heartbeat_report() -> dict:
+    """Per-loop age in seconds since last iteration, plus a stale list. Surfaced
+    by /health/pipeline so a stopped loop is visible without reading logs."""
+    now = datetime.now(IST)
+    ages = {name: round((now - seen).total_seconds(), 1) for name, seen in _heartbeats.items()}
+    return {
+        "loops": ages,
+        "stale": sorted(n for n, age in ages.items() if age > HEARTBEAT_STALE_AFTER_SECONDS),
+    }
+
+
+async def supervise(name: str, factory) -> None:
+    """Run a scheduler loop forever, restarting it if it ever exits.
+
+    A loop returning or raising is always a defect — they are infinite by
+    construction — so both are logged at error level rather than tolerated
+    silently. CancelledError is re-raised so application shutdown still works.
+    """
+    while True:
+        try:
+            await factory()
+        except asyncio.CancelledError:
+            logger.info("scheduler.loop.cancelled name=%s", name)
+            raise
+        except BaseException:
+            logger.exception("scheduler.loop.crashed name=%s restarting_in=%ds",
+                             name, LOOP_RESTART_DELAY_SECONDS)
+        else:
+            logger.error("scheduler.loop.returned name=%s restarting_in=%ds",
+                         name, LOOP_RESTART_DELAY_SECONDS)
+        await asyncio.sleep(LOOP_RESTART_DELAY_SECONDS)
+
+
 _heavy_job_active = False
 
 
@@ -209,7 +272,7 @@ async def price_refresh_loop() -> None:
     logger.info("Live price refresh loop started")
     tick = 0
     while True:
-        await asyncio.sleep(60)
+        await _idle("live-price-refresh", 60)
         tick += 1
         # ~390 ticks over a trading day, each building fresh pandas DataFrames
         # for 501 symbols via yfinance. The 20:00 incremental job's own
@@ -315,7 +378,7 @@ async def fast_quote_loop() -> None:
 
     while True:
         try:
-            await asyncio.sleep(FAST_REFRESH_SECONDS)
+            await _idle("fast-quote-refresh", FAST_REFRESH_SECONDS)
             tick += 1
             # ~2340 ticks over a trading day at 10s cadence — same allocator
             # fragmentation reasoning as price_refresh_loop above, just via
@@ -486,7 +549,7 @@ async def daily_signals_loop() -> None:
     last_skip_logged_date = None
 
     while True:
-        await asyncio.sleep(60)
+        await _idle("daily-signals", 60)
         try:
             now = datetime.now(IST)
             if now.weekday() >= 5:  # NSE is shut; the page falls back to Friday's list
@@ -693,7 +756,7 @@ async def daily_price_update_loop() -> None:
         REBUILD_HOUR, REBUILD_MINUTE,
     )
     while True:
-        await asyncio.sleep(300)  # coarse tick; this job runs once a day
+        await _idle("daily-price-update", 300)  # coarse tick; this job runs once a day
         try:
             now = datetime.now(IST)
             if now.weekday() >= 5:
@@ -797,7 +860,7 @@ async def weekly_universe_rebuild_loop() -> None:
     """
     logger.info("Weekly universe rebuild loop started — runs on day %d at %02d:%02d IST", FULL_REBUILD_DAY, REBUILD_HOUR, REBUILD_MINUTE)
     while True:
-        await asyncio.sleep(300)
+        await _idle("weekly-universe-rebuild", 300)
         try:
             now = datetime.now(IST)
             if now.weekday() != FULL_REBUILD_DAY:
@@ -893,7 +956,7 @@ async def fundamentals_refresh_loop() -> None:
         FUNDAMENTALS_REFRESH_DAY, FUNDAMENTALS_REFRESH_HOUR, FUNDAMENTALS_REFRESH_MINUTE,
     )
     while True:
-        await asyncio.sleep(300)
+        await _idle("fundamentals-refresh", 300)
         try:
             now = datetime.now(IST)
             if now.day != FUNDAMENTALS_REFRESH_DAY:
@@ -983,7 +1046,7 @@ async def ai_trading_loop() -> None:
         "AI trading loop started — runs at %02d:%02d IST", AI_TRADING_RUN_HOUR, AI_TRADING_RUN_MINUTE
     )
     while True:
-        await asyncio.sleep(60)
+        await _idle("ai-trading", 60)
         try:
             now = datetime.now(IST)
             if now.weekday() >= 5:

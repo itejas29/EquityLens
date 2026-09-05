@@ -124,9 +124,19 @@ def pipeline_health(db: Session = Depends(get_db)) -> dict:
     elif last_run and last_run.status == "failed":
         status = "degraded"
 
+    # A stopped scheduler loop used to be invisible here: the app keeps serving
+    # HTTP and every data field below stays plausible for days while nothing is
+    # actually running. On 2026-09-04 that hid a ~30-hour outage. A stale
+    # heartbeat is a degraded system even when the stored data still looks fine.
+    from app.core.scheduler import heartbeat_report
+    scheduler = heartbeat_report()
+    if scheduler["stale"]:
+        status = "degraded"
+
     from datetime import datetime
     return {
         "status": status,
+        "scheduler": scheduler,
         "database": db_status,
         "redis": redis_status,
         "data": coverage,
