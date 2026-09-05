@@ -45,10 +45,46 @@ construction differs. Pool of 1000; every arm draws 500.
 neutral construction, and the strategy shows no reliable alpha independent of
 selection.
 
-**Does not:** prove v1 is worthless. Drawdowns sit in a −13 to −15% band across
-every arm, which the regime filter is designed to produce and which is worth
-measuring properly against NIFTY's own drawdown — that comparison is not in this
-run and is the obvious next question.
+**Does not:** prove v1 is worthless on its own. But see the drawdown section
+below — that question is now also answered, from this same run's data, and it
+does not rescue the strategy.
+
+## Addendum — the risk-control claim also fails
+
+If returns match the index, the remaining case for v1 would be downside
+protection: the regime filter exists to cut bear exposure to 25%, and every arm
+holds ~30% cash. Both should suppress drawdown. Measured over the same 16 folds:
+
+| construction | maxDD% | NIFTY maxDD% | downside capture | upside capture | deployed |
+|---|---|---|---|---|---|
+| current_top500 | −13.41 | −10.97 | 112.8% | 91.3% | 71.6% |
+| pit_top500 | −14.47 | −10.97 | 182.1% | 82.1% | 71.7% |
+| pit_top500_60d | −14.04 | −10.97 | 195.8% | 83.3% | 71.7% |
+| random500_s1 | −14.17 | −10.97 | 154.4% | 100.3% | 70.4% |
+| random500_s2 | −13.31 | −10.97 | 39.1% | 91.9% | 69.6% |
+| random500_s3 | −13.97 | −10.97 | 190.0% | 116.1% | 69.6% |
+| bottom500 | −14.72 | −10.97 | 136.0% | 117.7% | 68.8% |
+
+**Every construction draws down deeper than NIFTY** (−13.3 to −14.7 vs −10.97),
+and does so *while holding roughly 30% cash* — so on the invested portion the
+gap is materially worse than these figures suggest. Across the four neutral
+arms, 47 of 64 fold-arms (73%) had a deeper drawdown than the index.
+
+Six of seven arms capture **more than 100% of the downside** while capturing
+**less than 100% of the upside**. That is the same pathology `strategy_params.py`
+records the regime filter as having been introduced to fix ("111% upside capture
+but 203% downside capture"); on neutral membership it is still 154–196%.
+
+## Overall verdict
+
+On this harness, v1 shows **no edge in return and negative edge in risk**:
+returns land at the index on membership it was not selected for, drawdown is
+~3pp deeper than the index, and downside capture exceeds upside capture. All of
+that is before survivorship, which every arm still flatters.
+
+The engineering around it — automated NSE pipeline, walk-forward harness with
+experiment locking, autonomous paper trading with an audit trail, monitoring —
+is real and works. The alpha is what is not established.
 
 **Unexplained residual:** `current_top500` returns 8.88% here, not Phase 17's
 16.76%, despite both being "today's most liquid names". The pools differ (this
