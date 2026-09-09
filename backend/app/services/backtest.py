@@ -112,12 +112,29 @@ def _half_cost(fill_price: float, quantity: int, transaction_cost_pct: float) ->
 
 
 def _rebalance_dates(trading_calendar: list[date_type], frequency: str) -> list[date_type]:
+    """First trading day of each period at the given frequency.
+
+    "weekly" and "daily" exist so a short holding period can be tested fairly.
+    Under monthly rebalancing a 5-day horizon holds for a week and then sits in
+    cash until the next month, which measures the interaction rather than the
+    horizon — any short-horizon arm would lose by construction. Entry frequency
+    has to move with exit speed for the comparison to mean anything.
+    """
     if not trading_calendar:
         return []
-    seen_periods: set[tuple[int, int]] = set()
+    seen_periods: set = set()
     dates: list[date_type] = []
     for d in trading_calendar:
-        period = (d.year, d.month) if frequency == "monthly" else (d.year, (d.month - 1) // 3)
+        if frequency == "daily":
+            period = d
+        elif frequency == "weekly":
+            # ISO year+week, so the period boundary is Monday regardless of
+            # which weekdays actually traded.
+            period = d.isocalendar()[:2]
+        elif frequency == "monthly":
+            period = (d.year, d.month)
+        else:
+            period = (d.year, (d.month - 1) // 3)
         if period not in seen_periods:
             seen_periods.add(period)
             dates.append(d)
