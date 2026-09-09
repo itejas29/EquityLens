@@ -1,6 +1,11 @@
 # Render Blueprint — deploys both services in one pass via
 # Render dashboard → New → Blueprint → point at this repo.
 #
+# STALE FOR THE BACKEND. The backend moved to EC2 in August 2026 and the Render
+# backend service is suspended, not deleted — it is the documented instant
+# rollback path, so its definition stays here rather than being removed. The
+# FRONTEND service below is live and current.
+#
 # Cannot be fully automated from here: DATABASE_URL and REDIS_URL come from
 # external free providers (Neon, Upstash) that need their own manual signup,
 # and CORS_ORIGINS/VITE_API_BASE_URL/VITE_WS_BASE_URL can only be filled in
@@ -40,8 +45,58 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
+    # Security headers. The session token lives in localStorage, which is safe
+    # only for as long as no script can be injected to read it — so the CSP is
+    # the control that actually protects it, not a nice-to-have.
+    #
+    # VERIFIED IN A BROWSER, not reasoned about: the production bundle was
+    # built, served with exactly these headers, and /login loaded with the
+    # CloudFront video, Google Fonts and every React inline style rendering,
+    # and ZERO console messages. /login is the heaviest page for CSP purposes
+    # because it pulls all three external origins.
+    #
+    #   script-src 'self'      — the directive that stops XSS. Possible with no
+    #                            exceptions because the Vite build emits no
+    #                            inline <script>, no inline <style> and no
+    #                            inline event handlers (checked in dist/).
+    #   style-src 'unsafe-inline' — unavoidable and much weaker in consequence:
+    #                            the app styles via React style={{...}} props
+    #                            throughout, and Recharts writes inline styles
+    #                            onto the SVG it renders.
+    #   connect-src https: wss: — deliberately broad. The API origin is an env
+    #                            var that differs per deployment (EC2 sslip.io
+    #                            today, Render before that), and a header
+    #                            pinned to the wrong host fails as a blank page
+    #                            with no obvious cause.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self';
+          script-src 'self';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' https://fonts.gstatic.com;
+          img-src 'self' data: https://d8j0ntlcm91z4.cloudfront.net;
+          media-src 'self' https://d8j0ntlcm91z4.cloudfront.net;
+          connect-src 'self' https: wss:;
+          object-src 'none';
+          base-uri 'none';
+          frame-ancestors 'none';
+          form-action 'self'
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Permissions-Policy
+        value: geolocation=(), microphone=(), camera=()
     envVars:
       - key: VITE_API_BASE_URL
-        sync: false   # https://equitylens-backend.onrender.com/api/v1
+        sync: false   # https://52-35-164-63.sslip.io/api/v1 — the EC2 backend
       - key: VITE_WS_BASE_URL
-        sync: false   # wss://equitylens-backend.onrender.com/api/v1
+        sync: false   # wss://52-35-164-63.sslip.io/api/v1
