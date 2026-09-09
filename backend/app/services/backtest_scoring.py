@@ -20,6 +20,7 @@ from app.core.backtest_config import BACKTEST_COMPOSITE_WEIGHTS, MIN_PRICE_ROWS_
 from app.core.scoring_config import RISK_WEIGHTS, TECHNICAL_WEIGHTS
 from app.services.indicators import compute_indicators
 from app.services.levels import Levels, atr_and_support, levels_from_atr
+from app.services.price_integrity import find_discontinuity
 from app.services.scoring import (
     _beta_score,
     _composite,
@@ -166,6 +167,14 @@ def compute_point_in_time_universe(
             lookback = getattr(params, "momentum_long_days", 252)
             skip = getattr(params, "momentum_skip_days", 21)
             if len(closes) < lookback + 1:
+                continue
+            # Same corporate-action gate as daily_signals._momentum_scores, and
+            # it has to be here for the same reason that function's docstring
+            # gives: "Identical construction ... so a signal published in
+            # production matches what the backtest would have selected." Adding
+            # the gate to only one of the two would break exactly the property
+            # every phase of the research programme rests on.
+            if find_discontinuity(closes.tolist()) is not None:
                 continue
             last, long_ago = closes.iloc[-1], closes.iloc[-lookback]
             if long_ago <= 0:

@@ -115,3 +115,30 @@ TDPOWERSYS is defect A and will repair itself once the restatement detector
 ships and its full history is re-pulled, at which point it re-enters the
 ranking. TRENT is defect B and stays out until 2027-01-01, when the step ages
 past the momentum lookback.
+
+
+## Effect on the research programme (Phases 17-20)
+
+`daily_signals._momentum_scores` documents that its construction is *identical*
+to `backtest_scoring` "so a signal published in production matches what the
+backtest would have selected". Gating only the live path would have broken
+exactly that property, so both now call `find_discontinuity`, and
+`test_live_and_backtest_apply_the_same_gate` asserts they continue to.
+
+The backtests already run on this same stored data, so every phase so far was
+computed with these nine discontinuities present. The effect is bounded and
+measurable:
+
+- **All nine steps are downward** (`prev_close > close` in every row above).
+- A downward step makes 12-month momentum read large-negative for about a year,
+  which puts the stock at the *bottom* of a percentile ranking that selects
+  from the top.
+- So no phase result ever contains a position opened because of one of these.
+  The effect is that roughly eight stock-years were effectively absent from a
+  ~500-stock universe — under 0.2% of the available stock-years across the
+  walk-forward span, in the direction of a slightly smaller candidate pool.
+
+Adding the gate does not change a published conclusion. It is worth stating
+plainly that it *could* have: had any of the nine been a consolidation, the
+step would have been upward, the stock would have ranked at the top, and the
+backtest would have bought it on a move that never happened.

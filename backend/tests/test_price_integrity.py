@@ -137,3 +137,22 @@ def test_a_split_stock_gets_no_momentum_score(db_session):
 
     assert split.id not in scores, "a stock with an unadjusted split was still ranked"
     assert clean_a.id in scores and clean_b.id in scores
+
+
+def test_live_and_backtest_apply_the_same_gate():
+    """daily_signals._momentum_scores documents that its construction is
+    identical to backtest_scoring "so a signal published in production matches
+    what the backtest would have selected". Gating only one of them breaks the
+    property every phase of the research programme rests on, so both call the
+    same function and this asserts they still do.
+    """
+    import inspect
+
+    from app.services import backtest_scoring, daily_signals
+
+    for module in (daily_signals, backtest_scoring):
+        source = inspect.getsource(module)
+        assert "find_discontinuity" in source, (
+            f"{module.__name__} does not apply the corporate-action gate — "
+            "live and backtest selection have diverged"
+        )
