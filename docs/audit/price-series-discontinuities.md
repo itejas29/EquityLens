@@ -74,12 +74,44 @@ lookback window corrupts both:
 Currently in the 12-month window as of 2026-09-10: **TDPOWERSYS** (defect A,
 2026-08-21) and **TRENT** (defect B, 2026-01-01).
 
-### Not yet fixed
+### Resolution: excluded, not back-adjusted
 
 Defect B cannot be repaired by re-fetching, because the provider's own series
-is what carries it. The options are to back-adjust our stored history by the
-known split ratio, or to exclude the affected symbol from signal generation
-until the discontinuity ages out of the lookback. Back-adjusting means writing
-computed prices into `price_history`, which is a deliberate decision and not
-one to take as a side effect of an audit — so it is recorded here rather than
-implemented silently.
+is what carries it. Two options: back-adjust our stored history by the known
+split ratio, or exclude the affected symbol from ranking until the
+discontinuity ages out of the lookback.
+
+**Excluded.** Back-adjusting means writing computed prices into
+`price_history`, and rule 5 is that missing data stays NULL rather than being
+filled with derived values. Exclusion is also what this pipeline already does
+with an unusable series — `daily_signals` is GATED, "a stock with no usable
+price series is dropped rather than shown with a caveat" — so this applies the
+existing policy to a case it did not previously cover, rather than inventing a
+new one.
+
+The gate lives in `_momentum_scores`, which is the single chokepoint: published
+signals, momentum leaders, the screener and `market_ext` all call it. It reads
+the closes already in memory, so it costs one pass and no queries.
+
+The discriminator is the RATIO, not the size of the move — see
+`services/price_integrity.py`. Real stocks fall 30% in a day; they do not fall
+by a factor of 2.0000.
+
+**Measured impact on production, 2026-09-09 (`as_of` = latest stored session):**
+
+```
+active stocks         : 500
+too little history    : 33     (pre-existing behaviour, unchanged)
+scored (unchanged)    : 465
+EXCLUDED by the gate  : 2
+    TDPOWERSYS (x1.9644 ~2:1    1507.50 -> 767.40)
+    TRENT      (x1.4936 ~3:2    4279.00 -> 2864.93)
+```
+
+Exactly the two symbols whose discontinuity falls inside the current 12-month
+window. No collateral exclusions.
+
+TDPOWERSYS is defect A and will repair itself once the restatement detector
+ships and its full history is re-pulled, at which point it re-enters the
+ranking. TRENT is defect B and stays out until 2027-01-01, when the step ages
+past the momentum lookback.

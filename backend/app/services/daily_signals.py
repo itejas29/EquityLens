@@ -46,6 +46,7 @@ import pandas as pd
 
 from app.core.v1_strategy import V1, V1_VERSION
 from app.services.levels import Levels, compute_levels
+from app.services.price_integrity import find_discontinuity
 from app.services.market_data import fetch_price_history
 from app.services.scoring import StockScore, _map_signal
 
@@ -279,10 +280,25 @@ def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dic
         closes_by_stock.setdefault(stock_id, []).append(float(close))
 
     raw: dict[int, float] = {}
+    excluded: list[int] = []
     for stock_id in stock_ids:
         closes = closes_by_stock.get(stock_id, [])
         if len(closes) < V1.momentum_long_days + 1:
             continue
+
+        # A price series with an unadjusted split in it is not a return series.
+        # The momentum formula below reads closes[-1] against
+        # closes[-momentum_long_days], so a step anywhere between them is read
+        # as a return that never happened — downward it ranks the stock last
+        # (harmless), upward it ranks it FIRST and buys it. Dropped rather than
+        # scored, matching how this module already treats a stock with too
+        # little history: gated out, not shown with a caveat. Costs one pass
+        # over a list already in memory. See services/price_integrity.py.
+        break_ = find_discontinuity(closes)
+        if break_ is not None:
+            excluded.append(stock_id)
+            continue
+
         last = closes[-1]
         long_ago = closes[-V1.momentum_long_days]
         if long_ago <= 0:
@@ -294,6 +310,18 @@ def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dic
                 continue
             total -= last / recent - 1
         raw[stock_id] = total
+
+    if excluded:
+        # WARNING, not debug: an excluded stock is one the strategy cannot see,
+        # and a silent exclusion is indistinguishable from a stock that simply
+        # ranked badly.
+        symbols = [
+            s for (s,) in db.query(Stock.symbol).filter(Stock.id.in_(excluded)).all()
+        ]
+        logger.warning(
+            "momentum: %d stock(s) excluded — corporate-action discontinuity in the "
+            "lookback window: %s", len(excluded), ", ".join(sorted(symbols)),
+        )
 
     if len(raw) < 2:
         return {}
