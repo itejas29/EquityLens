@@ -8,6 +8,7 @@ DailySignal publish. Sell pass first (frees cash/slots), then buy pass —
 see AITradingCycleResult for what a caller gets back.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from decimal import Decimal
@@ -23,13 +24,18 @@ from app.models.stock import Stock
 from app.models.user import User
 from app.services.daily_signals import compute_market_regime, get_daily_signals, trigger_state
 from app.services.paper_trading import (
+    MARK_SOURCE_TAPE,
     PaperTradingError,
     _mark_prices,
+    _marks_with_source,
     buy,
     get_or_create_account,
     sell,
     to_money,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +45,18 @@ class AITradingCycleResult:
     rebalanced: bool = False
     bought: list[dict] = field(default_factory=list)
     sold: list[dict] = field(default_factory=list)
+    # Held positions whose stop/target/horizon could NOT be evaluated this
+    # cycle because no price was available at all. An empty risk check that
+    # looks identical to a passing one is the thing being fixed here.
+    unpriced: list[str] = field(default_factory=list)
+    # Held positions checked against the previous stored close rather than a
+    # live quote — see _marks_with_source(). The check happened; it happened on
+    # a price that predates any overnight gap.
+    stale_marked: list[str] = field(default_factory=list)
+
+    @property
+    def risk_checks_degraded(self) -> bool:
+        return bool(self.unpriced or self.stale_marked)
 
 
 def _is_rebalance_day(db: Session, as_of: date_type) -> bool:
@@ -126,8 +144,11 @@ def _invested_value(trades: list[PaperTrade], marks: dict[int, Decimal]) -> Deci
 
 
 def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type,
-               regime: dict, is_rebalance: bool) -> list[dict]:
+               regime: dict, is_rebalance: bool) -> tuple[list[dict], list[str], list[str]]:
+    """Returns (sold, unpriced_symbols, stale_marked_symbols)."""
     results: list[dict] = []
+    unpriced: list[str] = []
+    stale_marked: list[str] = []
 
     # Pass 1: each position's own stop/target/horizon — independent of every other holding.
     # Marks are taken ONCE for the whole pass, not per position. Beyond the
@@ -136,17 +157,28 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
     # cycle could be judged against ticks captured seconds apart — one exit
     # decision made on a tape the next one no longer saw.
     pass1_trades = _open_trades(db, account)
-    pass1_marks = _mark_prices(db, [t.stock_id for t in pass1_trades])
     stock_ids = [t.stock_id for t in pass1_trades]
+    priced = _marks_with_source(db, stock_ids)
+    pass1_marks = {sid: price for sid, (price, _) in priced.items()}
     pass1_stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_(stock_ids)).all()} if stock_ids else {}
 
     for t in pass1_trades:
         stock = pass1_stocks.get(t.stock_id)
         if stock is None:
             continue
-        price = pass1_marks.get(t.stock_id)
-        if price is None:
+        entry = priced.get(t.stock_id)
+        if entry is None:
+            # No tape quote AND no stored bar. The stop, the target and the
+            # horizon are all unevaluated for this position today — recorded so
+            # the cycle can say so rather than reporting a clean run.
+            unpriced.append(stock.symbol)
+            logger.warning(
+                "ai_trading: no price for held position %s — stop/target NOT evaluated", stock.symbol
+            )
             continue
+        price, source = entry
+        if source != MARK_SOURCE_TAPE:
+            stale_marked.append(stock.symbol)
 
         reason = None
         # to_money on the stop/target too: they come back from Numeric(12,2) as
@@ -197,7 +229,7 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
                 invested -= (price or Decimal(0)) * Decimal(t.quantity)
                 results.append({"symbol": stock.symbol, "reason": "regime", "pnl": trade.pnl})
 
-    return results
+    return results, unpriced, stale_marked
 
 
 def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type, regime: dict) -> list[dict]:
@@ -263,8 +295,20 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     regime = compute_market_regime(db, as_of)
     # Stop / target / horizon are per-position rules the backtest evaluates on every
     # bar, so they run every cycle. The regime trim and new entries are rebalance-only.
-    sold = _sell_pass(db, account, user_id, as_of, regime, is_rebalance)
+    sold, unpriced, stale_marked = _sell_pass(db, account, user_id, as_of, regime, is_rebalance)
     bought = _buy_pass(db, account, user_id, as_of, regime) if is_rebalance else []
 
+    if unpriced:
+        logger.error(
+            "ai_trading %s: %d held position(s) had no price — risk controls not evaluated: %s",
+            as_of, len(unpriced), ", ".join(unpriced),
+        )
+    if stale_marked:
+        logger.warning(
+            "ai_trading %s: %d position(s) checked against the previous close, not a live quote: %s",
+            as_of, len(stale_marked), ", ".join(stale_marked),
+        )
+
     return AITradingCycleResult(as_of=as_of, regime=regime.get("regime", "unknown"),
-                                rebalanced=is_rebalance, bought=bought, sold=sold)
+                                rebalanced=is_rebalance, bought=bought, sold=sold,
+                                unpriced=unpriced, stale_marked=stale_marked)

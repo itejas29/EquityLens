@@ -119,18 +119,46 @@ def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, Decimal]:
     this account is benchmarked against fills on daily closes, so moving marks
     to intraday must not silently move fills there too.
     """
+    return {stock_id: price for stock_id, (price, _) in _marks_with_source(db, stock_ids).items()}
+
+
+# How a mark was arrived at. This is not decoration: the AI trading loop
+# evaluates stop-loss and target against these prices, and the three cases are
+# three different levels of confidence in that decision.
+MARK_SOURCE_TAPE = "tape"          # a quote from the live/session feed
+MARK_SOURCE_STORED_CLOSE = "close" # the newest stored daily bar — see below
+
+
+def _marks_with_source(db: Session, stock_ids: list[int]) -> dict[int, tuple[Decimal, str]]:
+    """_mark_prices, plus where each price came from.
+
+    The distinction matters because of WHEN the AI cycle runs: ~09:20 IST,
+    minutes after the open, and today's bar is not written until the 20:00
+    incremental. So the newest stored close is YESTERDAY'S. When the tape is
+    up, marks are live and a stop is judged against the real price. When the
+    tape is down — the fast-quote loop died, Redis is unreachable, the market
+    is shut — the fallback silently becomes "yesterday", and a stop that gapped
+    through overnight is not seen.
+
+    The fallback is still the right behaviour; a stale price beats no price and
+    beats guessing. What was wrong is that it was indistinguishable from a live
+    one at the call site, so a degraded risk check looked exactly like a
+    healthy one. Callers that act on these prices can now say which they got.
+    """
     if not stock_ids:
         return {}
 
     feed = get_price_feed()
-    marks: dict[int, Decimal] = {}
+    marks: dict[int, tuple[Decimal, str]] = {}
     for stock_id, symbol in db.query(Stock.id, Stock.symbol).filter(Stock.id.in_(stock_ids)).all():
         quote = feed.prices.get(symbol)
         price = quote.get("price") if quote else None
-        if price is None:
-            price = _latest_close(db, stock_id)
         if price is not None:
-            marks[stock_id] = to_money(price)
+            marks[stock_id] = (to_money(price), MARK_SOURCE_TAPE)
+            continue
+        close = _latest_close(db, stock_id)
+        if close is not None:
+            marks[stock_id] = (close, MARK_SOURCE_STORED_CLOSE)
     return marks
 
 

@@ -1048,6 +1048,18 @@ def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
         lines.append(f"🔴 Sold {s['symbol']} ({s['reason']}) — {sign}₹{abs(pnl):.2f}")
     if equity is not None:
         lines.append(f"Equity: ₹{equity:,.2f}")
+
+    # A degraded risk check is the one thing here worth interrupting someone
+    # for, so it goes in the message rather than only the log. "Nothing sold"
+    # and "nothing could be checked" look identical otherwise.
+    if result.unpriced:
+        lines.append(
+            f"⚠️ NO PRICE for {', '.join(result.unpriced)} — stop/target not evaluated today"
+        )
+    if result.stale_marked:
+        lines.append(
+            f"⚠️ {', '.join(result.stale_marked)} checked against the previous close, not a live quote"
+        )
     return "\n".join(lines)
 
 
@@ -1076,7 +1088,10 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
         run.finished_at = datetime.now(IST)
         db.commit()
 
-        if result.bought or result.sold:
+        # Also notify on a degraded cycle, not only an active one. A day where
+        # nothing traded BECAUSE nothing could be priced is exactly the day
+        # that must not pass in silence.
+        if result.bought or result.sold or result.risk_checks_degraded:
             account = get_ai_trader_account(db)
             equity = get_account_summary(db, account.user_id).equity
             db.commit()
