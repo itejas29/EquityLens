@@ -67,3 +67,36 @@ comparable; the frontend label is now "Drawdown (trading days)".
 - **Calmar** is `CAGR / |maxDD|` and `None` when there was no drawdown.
 - **Guards**: an empty curve and zero capital both return `{}` rather than
   zeros; a flat curve gives `None` for Sharpe rather than dividing by zero.
+
+
+## Benchmark-relative metrics: checked, and correct
+
+Phase 19's published conclusion cites **downside capture of 154-196%** as the
+evidence that V1's risk control fails. That figure comes from
+`_capture_ratios`, and nothing had ever checked it. If the function were wrong,
+a headline finding would be wrong with it.
+
+It is not wrong. Ten known-answer tests, all passing on the first run:
+
+| case | expected | source of the expectation |
+|---|---|---|
+| worked example | 48.44% up / 157.14% down | compounded by hand from the definition |
+| strategy == benchmark | 100% / 100% | identity |
+| strategy holds cash | 0% / 0% | identity |
+| strategy rises while index falls | negative downside capture | sign analysis |
+| fewer than 2 qualifying months | `None` | not a ratio from one point |
+| a partial first month prepended | unchanged | `pct_change` drops the partial period |
+
+`_relative_metrics` (tracking error, information ratio) likewise matches the
+definition, and reports `None` rather than 0 for a strategy that tracks the
+index exactly.
+
+**So Phase 19's downside-capture conclusion stands.** This is a negative
+result and worth recording as one: the number that carries a published finding
+was audited and found sound.
+
+The one correction was a docstring. It claimed "both numerator and denominator
+are negative on down days, so the ratio stays positive". It does not — a
+strategy that GAINS during the benchmark's down months produces a positive
+numerator over a negative denominator, and a negative ratio. That is the best
+possible outcome, not an error, and "lower is better" still sorts it correctly.

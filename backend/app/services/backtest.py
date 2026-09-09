@@ -316,8 +316,16 @@ def _capture_ratios(equity_curve: list[dict], benchmark_curve: list[dict]) -> di
     strategy loses more than the index when the index falls, which is the exact
     failure mode the walk-forward identified (203%).
 
-    Signs are handled explicitly: both numerator and denominator are negative on
-    down days, so the ratio stays positive and "lower is better" holds.
+    "Lower is better" holds throughout, but the ratio does NOT always stay
+    positive, as this docstring used to claim. On the benchmark's down months
+    the denominator is negative; if the strategy GAINED over those months the
+    numerator is positive and the ratio comes out negative. That is not an
+    error — it is the best possible outcome, and it sorts correctly under
+    "lower is better".
+
+    Verified against hand-computed cases in tests/test_backtest_capture.py:
+    matching the index gives 100% both ways, holding cash gives 0% both ways,
+    and a worked example gives 48.44% upside / 157.14% downside.
     """
     if not equity_curve or not benchmark_curve:
         return {"upside_capture_pct": None, "downside_capture_pct": None}
