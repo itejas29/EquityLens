@@ -6,6 +6,24 @@ aggregate, so loading it upfront carries no look-ahead risk. What matters is
 that every INDICATOR, SCORE, and LEVEL is recomputed from scratch at each
 rebalance date using only rows filtered to `date <= that date`
 (app.services.backtest_scoring.compute_point_in_time_universe does this).
+
+SURVIVORSHIP BIAS. Point-in-time applies to the DATA, not to universe
+MEMBERSHIP. The default universe is `Stock.is_active == True` — today's
+survivors, projected backwards over the whole window. Measured against
+production on 2026-09-10: 67 inactive stocks holding 112,385 bars spanning
+2016-08-16 to 2026-08-28 are excluded from every backtest, and the active
+universe itself grows from 315 names with data in 2016 to 500 in 2026. The
+stocks that fell out are precisely the ones a momentum strategy would have been
+most exposed to on the way down, so the bias INFLATES backtested returns.
+
+Worth stating which way that cuts for what has already been published: Phase 19
+concluded V1 has no measurable edge, and it reached that conclusion with the
+bias working in the strategy's favour. Removing it can only strengthen that
+finding, not overturn it.
+
+`include_inactive` on BacktestConfig turns the bias off. It defaults to False
+so every phase result stays reproducible; turning it on is a research decision,
+not a bug fix. It requires the delisting exit below to be meaningful.
 Nothing computed using the full history is ever reused across iterations —
 only the raw, unprocessed rows are shared.
 """
@@ -60,6 +78,11 @@ class BacktestConfig:
     # than only sizes — universe_top_n can rank exactly one way, at one date.
     # None -> unchanged behaviour.
     universe_stock_ids: list[int] | None = None
+    # Include stocks that have since left the universe. Default False, which
+    # is SURVIVORSHIP-BIASED and deliberately left as the default so every
+    # published phase result stays reproducible — see the survivorship note in
+    # the module docstring. A study measuring the bias sets this True.
+    include_inactive: bool = False
 
 
 @dataclass
@@ -96,6 +119,14 @@ class BacktestResult:
     trade_log: list[Trade] = field(default_factory=list)
     metrics: dict = field(default_factory=dict)
     benchmark_metrics: dict = field(default_factory=dict)
+
+
+# Consecutive calendar days without a bar after which a held position is
+# treated as delisted rather than merely untraded. 30 covers any legitimate
+# holiday stretch or suspension on NSE (the longest exchange closure in the
+# stored history is a few days) while still closing a genuinely dead series
+# inside the same month.
+STALE_POSITION_EXIT_DAYS = 30
 
 
 def _buy_fill(close: float, slippage_pct: float) -> float:
@@ -474,6 +505,12 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
         stocks = (db.query(Stock)
                   .filter(Stock.id.in_(config.universe_stock_ids))
                   .order_by(Stock.symbol).all())
+    elif config.include_inactive:
+        # Survivorship-free membership: everything that ever had data, whether
+        # or not it is still in the universe today. A name that delisted
+        # mid-window simply stops having bars, and the delisting exit in the
+        # daily loop closes any position in it.
+        stocks = db.query(Stock).order_by(Stock.symbol).all()
     else:
         stocks = db.query(Stock).filter(Stock.is_active == True).order_by(Stock.symbol).all()  # noqa: E712
 
@@ -583,6 +620,7 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
     deployed_samples: list[float] = []
     total_costs_paid = 0.0  # commission only; slippage is inside the fill price
     last_known_close: dict[int, float] = {}
+    last_bar_date: dict[int, date_type] = {}
 
     for today in trading_calendar:
         # --- exits: stop / target / horizon, checked every day ---
@@ -591,13 +629,49 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
             frame = indexed_frames.get(pos.stock_id)
             row = frame.loc[today] if frame is not None and today in frame.index else None
             if row is None or pd.isna(row["close"]):
-                still_open.append(pos)  # no data today — hold, can't evaluate triggers
+                # No bar today. A holiday or a one-off gap is normal and the
+                # position simply holds. A series that has STOPPED is not: the
+                # stock delisted, was acquired, or left the feed, and holding it
+                # forever means valuing it at its last traded price on every
+                # remaining day of the backtest and then "selling" it there at
+                # the end. With only active stocks that almost never fired;
+                # with include_inactive it would fire constantly, and it would
+                # make the results look BETTER than reality.
+                seen = last_bar_date.get(pos.stock_id, pos.entry_date)
+                if (today - seen).days < STALE_POSITION_EXIT_DAYS:
+                    still_open.append(pos)
+                    continue
+                # Exit at the last price the data actually supports. Not zero:
+                # a delisting is not always a wipeout and assuming one would be
+                # inventing a number. This is optimistic — a stock that stops
+                # trading has usually not stopped falling — so a run with
+                # include_inactive should be read as an upper bound, and the
+                # count of "delisted" exits in the trade log says how much of
+                # the result rests on it.
+                exit_price, reason = last_known_close.get(pos.stock_id, pos.entry_price), "delisted"
+                fill = _sell_fill(exit_price, config.slippage_pct)
+                sell_cost = _half_cost(fill, pos.quantity, config.transaction_cost_pct)
+                total_costs_paid += sell_cost
+                cash += fill * pos.quantity - sell_cost
+                effective_exit = fill - sell_cost / pos.quantity
+                pnl = (effective_exit - pos.entry_price) * pos.quantity
+                trade_log.append(
+                    Trade(
+                        stock_id=pos.stock_id, symbol=pos.symbol,
+                        entry_date=pos.entry_date, exit_date=today,
+                        entry_price=round(pos.entry_price, 2), exit_price=round(effective_exit, 2),
+                        quantity=pos.quantity, pnl=round(pnl, 2),
+                        pnl_pct=round((effective_exit / pos.entry_price - 1) * 100, 2),
+                        exit_reason=reason, holding_days=(today - pos.entry_date).days,
+                    )
+                )
                 continue
 
             close = float(row["close"])
             low = float(row["low"]) if pd.notna(row["low"]) else None
             high = float(row["high"]) if pd.notna(row["high"]) else None
             last_known_close[pos.stock_id] = close
+            last_bar_date[pos.stock_id] = today
 
             exit_price, reason = None, None
             if low is not None and low <= pos.stop_loss:
