@@ -12,7 +12,9 @@ const METRIC_LABELS = {
   sharpe_ratio: "Sharpe",
   sortino_ratio: "Sortino",
   max_drawdown_pct: "Max drawdown",
-  max_drawdown_duration_days: "Drawdown days",
+  // Counts trading sessions, not calendar days — the equity curve has one
+  // point per trading day. ~250 of these is a year.
+  max_drawdown_duration_days: "Drawdown (trading days)",
   final_equity: "Final equity",
   num_trades: "Trades",
   win_rate_pct: "Win rate",

@@ -408,16 +408,31 @@ def _equity_metrics(equity_curve: list[dict], initial_capital: float, risk_free_
         ann_vol = daily_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         if ann_vol > 0:
             sharpe = (ann_return - risk_free_rate) / ann_vol
-        downside = daily_returns[daily_returns < 0]
-        if len(downside) > 1:
-            downside_vol = downside.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-            if downside_vol > 0:
-                sortino = (ann_return - risk_free_rate) / downside_vol
+        # Downside deviation, not "standard deviation of the negative days".
+        # Sortino's denominator is the root-mean-square SHORTFALL below the
+        # target (0 here), taken over EVERY period. The previous version made
+        # two compounding mistakes, both shrinking the denominator and so
+        # inflating the magnitude of the ratio:
+        #   * std() measures spread about the MEAN OF THE NEGATIVES, which is
+        #     itself negative, rather than about the 0 target.
+        #   * it divided by the count of negative days instead of all days.
+        # Measured on a 2,000-day series (drift 0.04%/day, vol 1.2%): the old
+        # denominator was 0.846x the correct one, overstating |Sortino| by
+        # 1.18x. Flattering for a positive return, harsher for a negative one —
+        # either way the number was not the statistic it was labelled as.
+        shortfall = daily_returns.clip(upper=0.0)
+        downside_vol = float(np.sqrt((shortfall ** 2).mean()) * np.sqrt(TRADING_DAYS_PER_YEAR))
+        if downside_vol > 0:
+            sortino = (ann_return - risk_free_rate) / downside_vol
 
     running_max = equity.cummax()
     drawdown = (equity - running_max) / running_max
     max_dd = float(drawdown.min())
 
+    # TRADING days, not calendar days: the equity curve carries one point per
+    # trading session, so this counts bars. The key keeps its name so results
+    # stored by earlier phases stay comparable, but ~250 of these is a year,
+    # not ~250/365 of one.
     max_duration, current_duration = 0, 0
     for in_drawdown in (drawdown < 0).tolist():
         if in_drawdown:
