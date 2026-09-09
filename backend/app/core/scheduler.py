@@ -57,6 +57,7 @@ from app.core.fast_quotes_config import (
     SYMBOL_SET_REFRESH_SECONDS,
 )
 from app.core.market_hours import IST, is_market_hours
+from app.services.notifications import escape
 from app.core.memory_hygiene import trim_every
 from app.core.database import SessionLocal
 from app.core.experiment_lock import is_locked, lock_info
@@ -1038,14 +1039,20 @@ def _ai_trading_done_today(as_of: date_type) -> bool:
 
 
 def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
+    """Build the Telegram body. Sent with parse_mode="HTML", so every value
+    interpolated here is escaped — five active NSE symbols contain "&"
+    (ARE&M, GVT&D, J&KBANK, M&M, M&MFIN) and an unescaped one makes Telegram
+    reject the entire message. See services/notifications.py.
+    """
     kind = "monthly rebalance" if result.rebalanced else "daily stop/target check"
-    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> ({kind}, regime: {result.regime})"]
+    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> "
+             f"({kind}, regime: {escape(result.regime)})"]
     for b in result.bought:
-        lines.append(f"🟢 Bought {b['quantity']} {b['symbol']} @ ₹{b['price']:.2f}")
+        lines.append(f"🟢 Bought {b['quantity']} {escape(b['symbol'])} @ ₹{b['price']:.2f}")
     for s in result.sold:
         pnl = s["pnl"]
         sign = "+" if pnl >= 0 else "-"
-        lines.append(f"🔴 Sold {s['symbol']} ({s['reason']}) — {sign}₹{abs(pnl):.2f}")
+        lines.append(f"🔴 Sold {escape(s['symbol'])} ({escape(s['reason'])}) — {sign}₹{abs(pnl):.2f}")
     if equity is not None:
         lines.append(f"Equity: ₹{equity:,.2f}")
 
@@ -1053,13 +1060,11 @@ def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
     # for, so it goes in the message rather than only the log. "Nothing sold"
     # and "nothing could be checked" look identical otherwise.
     if result.unpriced:
-        lines.append(
-            f"⚠️ NO PRICE for {', '.join(result.unpriced)} — stop/target not evaluated today"
-        )
+        names = ", ".join(escape(s) for s in result.unpriced)
+        lines.append(f"⚠️ NO PRICE for {names} — stop/target not evaluated today")
     if result.stale_marked:
-        lines.append(
-            f"⚠️ {', '.join(result.stale_marked)} checked against the previous close, not a live quote"
-        )
+        names = ", ".join(escape(s) for s in result.stale_marked)
+        lines.append(f"⚠️ {names} checked against the previous close, not a live quote")
     return "\n".join(lines)
 
 

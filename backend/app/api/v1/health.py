@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,22 @@ def ping() -> dict:
 
 
 @router.get("/health")
-def health(db: Session = Depends(get_db)) -> dict:
+def health(response: Response, db: Session = Depends(get_db)) -> dict:
+    """Readiness. The Dockerfile's HEALTHCHECK and any uptime probe read this.
+
+    The two dependencies are NOT equivalent and the status code says so:
+
+      * No database — this app cannot answer a single meaningful request.
+        503, so `curl -f` fails and an orchestrator sees it.
+      * No Redis — degraded, but serving. core/cache.py turns a Redis outage
+        into cache misses and every read path falls back to the database, so
+        restarting the container would fix nothing and interrupt the scheduler
+        loops. 200, with the state reported in the body.
+
+    It previously returned 200 unconditionally, with the state only in the
+    body — which meant the container healthcheck could not fail on anything
+    short of the process dying.
+    """
     try:
         db.execute(text("SELECT 1"))
         db_status = "ok"
@@ -41,11 +56,15 @@ def health(db: Session = Depends(get_db)) -> dict:
     except Exception:
         redis_status = "unreachable"
 
-    return {
-        "status": "ok" if db_status == "ok" and redis_status == "ok" else "degraded",
-        "database": db_status,
-        "redis": redis_status,
-    }
+    if db_status != "ok":
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        overall = "unhealthy"
+    elif redis_status != "ok":
+        overall = "degraded"
+    else:
+        overall = "ok"
+
+    return {"status": overall, "database": db_status, "redis": redis_status}
 
 
 @router.get("/health/pipeline", dependencies=[Depends(get_current_user)])

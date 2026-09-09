@@ -2,6 +2,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
 
+# HS256's digest is 32 bytes; a key shorter than that adds no strength and a
+# much shorter one is brute-forceable offline from one captured token.
+MIN_JWT_SECRET_LENGTH = 32
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -27,6 +32,27 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def _reject_weak_secret(cls, v: str) -> str:
+        """HS256 signs with this key directly, so its entropy IS the security
+        of every session token. There was no check at all, which meant the
+        placeholder in .env.example ("change-me-to-a-random-secret") was a
+        working configuration.
+
+        32 characters is the floor because that is the digest size HS256
+        produces — a shorter key adds nothing and a much shorter one is
+        offline-brute-forceable from a single captured token. Both existing
+        deployments are already above it (production 44, local 64), so this
+        rejects placeholders without locking anyone out.
+        """
+        if len(v.strip()) < MIN_JWT_SECRET_LENGTH:
+            raise ValueError(
+                f"JWT_SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters "
+                "— generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
+        return v
 
     # Both ports, because the frontend is served from either depending on how
     # you run it: 5173 is the Vite dev server, 3000 is the nginx container in

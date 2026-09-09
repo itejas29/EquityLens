@@ -203,3 +203,49 @@ def test_wildcard_cors_origin_is_rejected_at_startup(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://ok.example.com,*")
     with pytest.raises(pydantic.ValidationError, match=r'may not contain'):
         Settings()
+
+
+def test_health_is_503_only_when_the_database_is_gone(client, fake_redis, monkeypatch):
+    """The two dependencies are not equivalent.
+
+    No Redis is degraded-but-serving: every read path falls back to the
+    database, so restarting the container would fix nothing and would
+    interrupt the scheduler loops. No database means nothing can be answered.
+    A probe has to be able to tell those apart, and a body-only status cannot.
+    """
+    with redis_down(fake_redis):
+        resp = client.get("/api/v1/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "degraded", "database": "ok", "redis": "unreachable"}
+
+    from app.core.database import get_db
+    from app.main import app
+
+    class _DeadSession:
+        def execute(self, *a, **k):
+            raise RuntimeError("connection refused")
+
+    app.dependency_overrides[get_db] = lambda: iter([_DeadSession()])
+    try:
+        resp = client.get("/api/v1/health")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "unhealthy"
+
+
+def test_a_short_jwt_secret_is_refused_at_startup(monkeypatch):
+    """HS256 signs with this key directly, so its entropy IS the security of
+    every session token. There was no check, which made the placeholder in
+    .env.example a working configuration."""
+    import pydantic
+
+    from app.core.config import MIN_JWT_SECRET_LENGTH, Settings
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "change-me-to-a-random-secret")
+    with pytest.raises(pydantic.ValidationError, match=str(MIN_JWT_SECRET_LENGTH)):
+        Settings()
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "x" * MIN_JWT_SECRET_LENGTH)
+    assert Settings().jwt_secret_key

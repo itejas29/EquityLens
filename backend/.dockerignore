@@ -1,5 +1,15 @@
+# Build context excludes. .env and .venv are the load-bearing entries: the
+# Dockerfile does `COPY . .`, so without them a local secrets file would be
+# baked into the image and a 394MB virtualenv would be shipped with it.
 .venv/
+.env
 __pycache__/
 *.pyc
-.env
+.pytest_cache/
 app/ml/artifacts/*.joblib
+
+# Test-only. requirements-dev.txt exists so the test runner never reaches the
+# production image; copying the tests themselves in would undo half of that.
+tests/
+pytest.ini
+requirements-dev.txt
