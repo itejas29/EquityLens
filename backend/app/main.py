@@ -1,11 +1,14 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.database import THREADPOOL_LIMIT
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import setup_logging
 from app.core.scheduler import (
@@ -26,6 +29,18 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the background tasks; cancel them on shutdown."""
+    # Cap the worker threadpool that FastAPI runs `def` endpoints in. AnyIO
+    # defaults it to 40, and every one of those threads can hold a database
+    # Session — against a pool that tops out at 30. Left as-is the two
+    # disagree, and the disagreement surfaces as requests queueing on the
+    # connection pool under load rather than as honest backpressure. See the
+    # sizing note in core/database.py; the two numbers are meant to be read
+    # together and changed together.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = THREADPOOL_LIMIT
+    logging.getLogger(__name__).info(
+        "threadpool capped at %d workers to match the DB pool", THREADPOOL_LIMIT
+    )
+
     # Every loop runs under supervise(), which logs and restarts it if it ever
     # exits. Holding these task references for the process lifetime is what
     # previously made a dying loop invisible: Python only warns about an
@@ -54,10 +69,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="EquityLens API", lifespan=lifespan)
 
+# allow_credentials is False on purpose. Authentication here is a bearer token
+# read from localStorage and set on the Authorization header — no cookies are
+# used in either direction. Leaving credentials on costs nothing today but
+# makes the "*" origin case genuinely dangerous the moment someone sets it,
+# because Starlette then reflects whatever Origin the browser sent. Settings
+# rejects "*" outright for the same reason; this is the second lock.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

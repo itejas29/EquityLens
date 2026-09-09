@@ -8,13 +8,53 @@ results, so this is a pure cache, not a staleness risk).
 Never cached: live price lookups, user portfolios, auth — anything where a
 stale read would show a user wrong money or let a stale session survive
 past a real state change.
+
+A REDIS OUTAGE IS A CACHE MISS, NOT AN ERROR. Every access here used to let
+redis.RedisError propagate. Because get_price_feed() reads this module, that
+turned an Upstash blip into 500s on the signals page, the paper account and
+the AI trading page — all three of which have a working database fallback and
+none of which need Redis to answer correctly. Worse, paper_trading.buy()/sell()
+also call get_price_feed(), so the same blip failed the whole AI trading cycle.
+
+So reads degrade to None (the caller's existing "not cached" path), writes and
+deletes become no-ops, and the failure is logged rather than raised. Two
+deliberate consequences:
+
+  * A failed write means the next read recomputes. Correct, just slower.
+  * A failed DELETE means a stale entry can outlive its invalidation, up to its
+    TTL. That is the one genuinely lossy case, so it is logged at WARNING with
+    the key — the longest exposure is the scored universe at one hour.
+
+What does NOT degrade: core/rate_limit.py. A rate limiter that treats an
+unreachable Redis as "allow" removes the protection exactly when the system is
+already unhealthy, so it fails closed instead.
 """
 
 import hashlib
 import json
+import logging
+import time
 from typing import Any
 
+from redis.exceptions import RedisError
+
 from app.core.redis_client import redis_client
+
+logger = logging.getLogger(__name__)
+
+# One log line per minute per operation kind while Redis is down. An outage
+# would otherwise emit a line per request, which buries the cause it is
+# reporting.
+_LOG_THROTTLE_SECONDS = 60
+_last_logged: dict[str, float] = {}
+
+
+def _log_degraded(operation: str, key: str, exc: Exception, level: int = logging.INFO) -> None:
+    now = time.monotonic()
+    if now - _last_logged.get(operation, 0.0) < _LOG_THROTTLE_SECONDS:
+        return
+    _last_logged[operation] = now
+    logger.log(level, "redis unavailable, cache %s degraded (key=%s): %s", operation, key, exc)
 
 TTL_SCORED_UNIVERSE = 3600
 TTL_STOCK_DETAIL = 900
@@ -22,14 +62,35 @@ TTL_BACKTEST = 86400
 
 
 def _get_json(key: str) -> Any | None:
-    raw = redis_client.get(key)
+    try:
+        raw = redis_client.get(key)
+    except RedisError as exc:
+        _log_degraded("read", key, exc)
+        return None
     if raw is None:
         return None
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        # A corrupt or half-written value is a miss, not a 500. Logged at
+        # WARNING because unlike an outage this should never happen.
+        logger.warning("discarding unparseable cache value (key=%s): %s", key, exc)
+        return None
 
 
 def _set_json(key: str, value: Any, ttl: int) -> None:
-    redis_client.set(key, json.dumps(value), ex=ttl)
+    try:
+        redis_client.set(key, json.dumps(value), ex=ttl)
+    except RedisError as exc:
+        _log_degraded("write", key, exc)
+
+
+def _delete(key: str) -> None:
+    """Invalidation. The one lossy degradation — see the module docstring."""
+    try:
+        redis_client.delete(key)
+    except RedisError as exc:
+        _log_degraded("invalidate", key, exc, level=logging.WARNING)
 
 
 def scored_universe_key() -> str:
@@ -45,7 +106,7 @@ def set_scored_universe_cache(value: list[dict]) -> None:
 
 
 def invalidate_scored_universe_cache() -> None:
-    redis_client.delete(scored_universe_key())
+    _delete(scored_universe_key())
 
 
 def stock_detail_key(symbol: str) -> str:
@@ -61,7 +122,7 @@ def set_stock_detail_cache(symbol: str, value: dict) -> None:
 
 
 def invalidate_stock_detail_cache(symbol: str) -> None:
-    redis_client.delete(stock_detail_key(symbol))
+    _delete(stock_detail_key(symbol))
 
 
 def hash_backtest_config(config: dict) -> str:

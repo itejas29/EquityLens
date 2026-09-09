@@ -73,7 +73,7 @@ def no_tape(monkeypatch):
 
 @pytest.fixture
 def user(db_session):
-    u = User(name="T", email="t@example.test", password_hash="x")
+    u = User(name="T", email="t@example.com", password_hash="x")
     db_session.add(u)
     db_session.flush()
     return u

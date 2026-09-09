@@ -19,7 +19,9 @@ The EquityLens production pipeline runs in Docker. This ensures it behaves ident
 The pipeline health endpoint reports exactly what data is present and when the last jobs ran.
 
 ```bash
-curl -s http://localhost:8000/api/v1/health/pipeline | jq
+# /health/pipeline needs a bearer token — see the API reference in README.md.
+curl -s http://localhost:8000/api/v1/health
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/health/pipeline | jq
 ```
 
 ## Daily Schedule (IST)

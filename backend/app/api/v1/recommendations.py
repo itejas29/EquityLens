@@ -10,6 +10,7 @@ from app.models.stock import Stock
 from app.schemas.recommendation import RecommendationResponse, RunUniverseResponse
 from app.core.cache import invalidate_scored_universe_cache
 from app.core.rate_limit import rate_limit_analysis
+from app.core.security import get_current_user
 from app.ml.predict import predict_probability
 from app.services.ingestion import create_recommendation
 from app.services.levels import compute_levels_for_stock
@@ -42,8 +43,18 @@ def _to_response(db: Session, rec: Recommendation, symbol: str, sector: str | No
     )
 
 
-@scoring_router.post("/run-universe", response_model=RunUniverseResponse, dependencies=[Depends(rate_limit_analysis)])
+@scoring_router.post(
+    "/run-universe",
+    response_model=RunUniverseResponse,
+    dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
+)
 def run_universe(db: Session = Depends(get_db)) -> RunUniverseResponse:
+    """Score every active stock and persist a recommendation for each.
+
+    The single most expensive request the API serves — it scores the whole
+    universe and writes a row per stock. Authenticated as well as rate
+    limited; 100 anonymous requests a minute against this is the box.
+    """
     scores = score_universe(db)
     for score in scores:
         levels = compute_levels_for_stock(db, score.stock_id)

@@ -164,7 +164,8 @@ the Mac sleeping, not a formal uptime guarantee.
 ## 9. Verify
 
 1. Open the frontend URL, log in.
-2. Check `https://equitylens-backend.onrender.com/api/v1/health/pipeline` —
+2. Check `https://equitylens-backend.onrender.com/api/v1/health/pipeline`
+   (send `Authorization: Bearer <token>`; it is no longer public) —
    should report current data, not stale.
 3. Leave a tab open across a 09:15 or 20:00 IST boundary once and confirm the
    corresponding log line / DB row appears (same checks used throughout this

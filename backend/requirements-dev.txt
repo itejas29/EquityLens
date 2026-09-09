@@ -5,3 +5,6 @@
 -r requirements.txt
 
 pytest==8.3.4
+# Required by fastapi.testclient / starlette.testclient — the TestClient is an
+# httpx transport. Test-only, same reasoning as pytest above.
+httpx==0.28.1

@@ -12,6 +12,7 @@ from app.core.cache import (
 from app.core.database import get_db
 from app.core.exceptions import AppError
 from app.core.rate_limit import rate_limit_analysis
+from app.core.security import get_current_user
 from app.models.fundamentals import Fundamentals
 from app.models.indicator import Indicator
 from app.models.price_history import PriceHistory
@@ -90,13 +91,24 @@ def search_stocks(
     )
 
 
-@router.post("/{symbol}/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{symbol}/ingest",
+    response_model=IngestResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
+)
 def ingest_stock(symbol: str, db: Session = Depends(get_db)) -> IngestResponse:
     """Pull a symbol's history on demand and make it analysable.
 
-    Idempotent: re-ingesting an existing symbol just refreshes it. Rate-limited
-    with the other market-data-hitting endpoints, since each call is several
-    upstream requests.
+    Idempotent: re-ingesting an existing symbol just refreshes it.
+
+    Authenticated and rate-limited, because each call is several upstream
+    yfinance requests plus unbounded DB writes. This docstring used to claim
+    the rate limit while the decorator carried neither dependency — the
+    endpoint was open to anyone who could reach the host, which on a 2GB box
+    with a history of memory incidents is a resource-exhaustion vector, not a
+    theoretical one. Every page of the UI is behind ProtectedRoute and already
+    sends the bearer token, so requiring it changes nothing for the frontend.
     """
     symbol = symbol.upper()
     if in_catalogue(db, symbol) is None:
@@ -121,10 +133,17 @@ def ingest_stock(symbol: str, db: Session = Depends(get_db)) -> IngestResponse:
     return IngestResponse(**report)
 
 
-@router.post("/catalogue/refresh", response_model=CatalogueLoadResponse)
+@router.post(
+    "/catalogue/refresh",
+    response_model=CatalogueLoadResponse,
+    dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
+)
 def refresh_catalogue(db: Session = Depends(get_db)) -> CatalogueLoadResponse:
     """Reload the NSE equity list. Cheap (one CSV) and the only way renamed or
     newly-listed tickers become searchable.
+
+    Cheap per call, not cheap in a loop: it rewrites the catalogue table and
+    fetches from NSE each time. See ingest_stock for why these carry auth.
     """
     try:
         report = load_catalogue(db)
@@ -194,8 +213,12 @@ def get_prices(
     return query.order_by(PriceHistory.date).all()
 
 
-@router.post("/{symbol}/refresh", response_model=RefreshResponse)
+@router.post("/{symbol}/refresh", response_model=RefreshResponse, dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)])
 def refresh_stock(symbol: str, db: Session = Depends(get_db)) -> RefreshResponse:
+    """Re-fetch meta, prices and fundamentals for one symbol.
+
+    Three upstream calls and three upserts per request — see ingest_stock.
+    """
     symbol = symbol.upper()
     try:
         meta = fetch_stock_meta(symbol)
@@ -219,8 +242,16 @@ def refresh_stock(symbol: str, db: Session = Depends(get_db)) -> RefreshResponse
     )
 
 
-@router.post("/{symbol}/compute-indicators", response_model=ComputeIndicatorsResponse)
+@router.post(
+    "/{symbol}/compute-indicators",
+    response_model=ComputeIndicatorsResponse,
+    dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
+)
 def compute_indicators_endpoint(symbol: str, db: Session = Depends(get_db)) -> ComputeIndicatorsResponse:
+    """Recompute and store this symbol's indicator series.
+
+    Pulls the benchmark series and runs a full pandas pass — see ingest_stock.
+    """
     stock = _get_stock_or_404(db, symbol)
 
     price_df = load_price_history_df(db, stock.id)

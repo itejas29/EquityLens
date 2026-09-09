@@ -6,11 +6,24 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class AppError(Exception):
-    """Base for domain errors that should map to a specific HTTP status."""
+    """Base for domain errors that should map to a specific HTTP status.
 
-    def __init__(self, detail: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+    `headers` exists because a 429/503 without Retry-After tells a client it
+    was refused but not when to come back. Setting that header on a Response
+    injected into a dependency does not work — raising discards the injected
+    response and the handler below builds a fresh one — so it has to travel on
+    the exception itself.
+    """
+
+    def __init__(
+        self,
+        detail: str,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+        headers: dict[str, str] | None = None,
+    ):
         self.detail = detail
         self.status_code = status_code
+        self.headers = headers
         super().__init__(detail)
 
 
@@ -21,7 +34,11 @@ def _error_body(detail: str, status_code: int) -> dict:
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=_error_body(exc.detail, exc.status_code))
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_body(exc.detail, exc.status_code),
+            headers=exc.headers,
+        )
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

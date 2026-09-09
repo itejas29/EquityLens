@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.services.market import get_price_feed
 from app.core.database import get_db
 from app.core.rate_limit import rate_limit_analysis
+from app.core.security import get_current_user
 from app.models.daily_signal import DailySignal
 from app.models.stock import Stock
 from app.schemas.daily_signal import (
@@ -144,13 +145,22 @@ def list_dates(db: Session = Depends(get_db)) -> list[date_type]:
     return available_dates(db)
 
 
-@router.post("/run", response_model=GenerateDailySignalsResponse, dependencies=[Depends(rate_limit_analysis)])
+@router.post(
+    "/run",
+    response_model=GenerateDailySignalsResponse,
+    dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
+)
 def run_generation(
     date: date_type | None = Query(None, description="Defaults to today"),
     db: Session = Depends(get_db),
 ) -> GenerateDailySignalsResponse:
     """Manual trigger for the same job the 09:15 IST scheduler runs. Useful
     after a data refresh, and the only way to publish outside market days.
+
+    Authenticated: this endpoint REPUBLISHES a dated shortlist, and the whole
+    point of that shortlist is that it is frozen — "a past day's call can be
+    reviewed as it was published". An anonymous caller able to rewrite it made
+    that guarantee unenforceable, which matters more here than the compute.
     """
     rows = generate_daily_signals(db, date)
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}

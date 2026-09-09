@@ -48,7 +48,11 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/pipeline"]
+      # /health, not /health/pipeline. The pipeline endpoint counts the whole
+      # universe and reports scheduler internals — too heavy for a 30s probe,
+      # and it now requires auth. It also never actually failed this check:
+      # it answers 200 with a "degraded" field, so curl -f passed regardless.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5

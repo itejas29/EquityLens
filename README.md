@@ -79,26 +79,33 @@ npm run dev
 
 All endpoints are under `/api/v1`. `*` = requires `Authorization: Bearer <token>`.
 
+Everything that writes, fetches from upstream, or spends real compute requires
+a token. Read endpoints do not. `/auth/login` and `/auth/register` are limited
+to 20 requests/minute per IP; the analysis endpoints to 100/minute per user
+(per IP when anonymous).
+
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | DB connectivity check |
+| GET | `/ping` | liveness only, no DB — for cold-start probes |
+| GET | `/health` | DB + Redis connectivity check |
+| GET | `/health/pipeline` * | coverage, signal freshness, scheduler heartbeats |
 | POST | `/auth/register` | |
 | POST | `/auth/login` | |
 | GET | `/auth/me` * | |
 | GET | `/stocks` | paginated, `?sector=` filter |
 | GET | `/stocks/search` | `?q=&limit=`, searches all NSE listings |
-| POST | `/stocks/{symbol}/ingest` | on-demand fetch + index, makes a symbol analysable |
-| POST | `/stocks/catalogue/refresh` | reload the NSE equity list |
+| POST | `/stocks/{symbol}/ingest` * | on-demand fetch + index, rate-limited |
+| POST | `/stocks/catalogue/refresh` * | reload the NSE equity list, rate-limited |
 | GET | `/stocks/{symbol}` | cached 15m |
 | GET | `/stocks/{symbol}/prices` | `?from=&to=`, never cached |
-| POST | `/stocks/{symbol}/refresh` | re-fetch from yfinance, invalidates caches |
-| POST | `/stocks/{symbol}/compute-indicators` | |
+| POST | `/stocks/{symbol}/refresh` * | re-fetch from yfinance, rate-limited, invalidates caches |
+| POST | `/stocks/{symbol}/compute-indicators` * | rate-limited |
 | GET | `/stocks/{symbol}/indicators` | `?from=&to=` |
 | GET | `/daily-signals` | `?date=`, defaults to most recent published shortlist |
 | GET | `/daily-signals/dates` | dates with a published shortlist |
-| POST | `/daily-signals/run` | manual trigger for the 09:15 IST job, rate-limited |
+| POST | `/daily-signals/run` * | manual trigger for the 09:15 IST job, rate-limited |
 | POST | `/stocks/{symbol}/score` | rate-limited |
-| POST | `/scoring/run-universe` | rate-limited, invalidates scored-universe cache |
+| POST | `/scoring/run-universe` * | rate-limited, invalidates scored-universe cache |
 | GET | `/recommendations` | `?min_score=&sector=&limit=`, rate-limited |
 | POST | `/portfolio/analyze` | rate-limited, capital-dependent, not cached |
 | POST | `/portfolio` * | saves an analysis as a portfolio |

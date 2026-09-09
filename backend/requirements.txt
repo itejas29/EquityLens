@@ -6,7 +6,13 @@ psycopg2-binary==2.9.10
 pydantic==2.10.4
 pydantic-settings==2.7.0
 email-validator==2.2.0
-python-jose[cryptography]==3.3.0
+# 3.3.0 (Jun 2021) called datetime.utcnow(), which Python 3.12 deprecates and a
+# future version removes — i.e. JWT validation on a borrowed clock. 3.5.0 drops
+# it, and also carries the fixes for CVE-2024-33663 (algorithm confusion) and
+# CVE-2024-33664 (JWE decryption DoS). Neither was exploitable here — decode()
+# already pins algorithms and nothing uses JWE — but running a four-year-old
+# crypto library with known CVEs is not a position worth defending.
+python-jose[cryptography]==3.5.0
 bcrypt==4.2.1
 yfinance==1.6.0
 # Already present transitively via yfinance; pinned explicitly because

@@ -22,4 +22,4 @@ No manual intervention is required.
 
 Signals are a point-in-time snapshot representing what the system *would have told you to do* before the market opened. Generating them retroactively after seeing the day's price action is look-ahead contamination.
 
-If the machine is off, no signals are generated for those dates. The `GET /api/v1/health/pipeline` endpoint will accurately report that the last signals generated are stale. When the machine comes back online, it will generate *today's* signals at 09:15, and the historical record will correctly show a gap for the days the system was down.
+If the machine is off, no signals are generated for those dates. The `GET /api/v1/health/pipeline` endpoint (authenticated) will accurately report that the last signals generated are stale. When the machine comes back online, it will generate *today's* signals at 09:15, and the historical record will correctly show a gap for the days the system was down.

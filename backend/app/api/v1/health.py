@@ -5,12 +5,21 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.redis_client import redis_client
+from app.core.security import get_current_user
 from app.models.daily_signal import DailySignal
 from app.models.pipeline_run import PipelineRun
 from app.models.price_history import PriceHistory
 from app.models.stock import Stock
 
 router = APIRouter(tags=["health"])
+
+# The most symbols /health/pipeline will name in one response. Unbounded, this
+# list is the entire active universe — ~500 tickers — on any day the pipeline
+# is behind, which is both a large response and a free readout of exactly which
+# stocks this system tracks. The count above it is the operational signal; the
+# names are a debugging convenience and a sample is enough of one.
+MAX_MISSING_SYMBOLS_REPORTED = 25
+
 
 @router.get("/ping")
 def ping() -> dict:
@@ -39,8 +48,19 @@ def health(db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.get("/health/pipeline")
+@router.get("/health/pipeline", dependencies=[Depends(get_current_user)])
 def pipeline_health(db: Session = Depends(get_db)) -> dict:
+    """Operational detail: pipeline runs, data coverage, signal freshness,
+    scheduler heartbeats.
+
+    Authenticated, unlike /ping and /health. This response names the stocks in
+    the universe and describes the internals of every scheduler loop — useful
+    to an operator, and a free readout of the system's composition to anyone
+    else. The two unauthenticated endpoints above remain the ones a container
+    or uptime probe should use; docker-compose's healthcheck points at /health
+    for that reason. It was pointed here, which was both the heaviest query in
+    the app on a 30-second timer and the reason this could not require auth.
+    """
     try:
         db.execute(text("SELECT 1"))
         db_status = "ok"
@@ -70,27 +90,49 @@ def pipeline_health(db: Session = Depends(get_db)) -> dict:
         .first()
     )
 
-    # 2. Data coverage for active stocks
-    active_stocks = db.query(Stock).filter(Stock.is_active == True).all()
-    active_count = len(active_stocks)
-    
+    # 2. Data coverage for active stocks.
+    #
+    # Counted in the database rather than by loading every Stock row and every
+    # price_history row for the session and diffing them in Python. The old
+    # version pulled ~1,000 rows into memory on every call — on a 30-second
+    # container healthcheck, permanently, on a 2GB box with a history of
+    # memory incidents.
+    active_count = db.query(func.count(Stock.id)).filter(Stock.is_active == True).scalar() or 0  # noqa: E712
+
     coverage = {"stocks_active": active_count, "stocks_with_today_data": 0, "stocks_missing_today": []}
     if active_count > 0:
         latest_date = db.query(func.max(PriceHistory.date)).scalar()
         coverage["latest_price_date"] = latest_date.isoformat() if latest_date else None
-        
+
         if latest_date:
-            # Find which active stocks have data for the latest date
-            have_data = (
+            have_data_subq = (
                 db.query(PriceHistory.stock_id)
-                .filter(PriceHistory.date == latest_date)
-                .all()
+                .filter(PriceHistory.date == latest_date, PriceHistory.stock_id == Stock.id)
+                .exists()
             )
-            have_data_ids = {r[0] for r in have_data}
-            
-            coverage["stocks_with_today_data"] = len([s for s in active_stocks if s.id in have_data_ids])
-            coverage["stocks_missing_today"] = [s.symbol for s in active_stocks if s.id not in have_data_ids]
-            coverage["coverage_pct"] = round((coverage["stocks_with_today_data"] / active_count) * 100, 1)
+            with_data = (
+                db.query(func.count(Stock.id))
+                .filter(Stock.is_active == True, have_data_subq)  # noqa: E712
+                .scalar()
+            ) or 0
+            missing_symbols = [
+                row[0]
+                for row in db.query(Stock.symbol)
+                .filter(Stock.is_active == True, ~have_data_subq)  # noqa: E712
+                .order_by(Stock.symbol)
+                .limit(MAX_MISSING_SYMBOLS_REPORTED)
+                .all()
+            ]
+
+            coverage["stocks_with_today_data"] = with_data
+            coverage["stocks_missing_today"] = missing_symbols
+            coverage["stocks_missing_today_count"] = active_count - with_data
+            # Says so explicitly rather than letting a truncated list read as
+            # the whole story.
+            coverage["stocks_missing_today_truncated"] = (
+                active_count - with_data
+            ) > len(missing_symbols)
+            coverage["coverage_pct"] = round((with_data / active_count) * 100, 1)
 
     # 3. Signals
     latest_signal_date = db.query(func.max(DailySignal.date)).scalar()
