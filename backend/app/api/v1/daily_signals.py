@@ -58,8 +58,12 @@ def _to_response(row: DailySignal, stock: Stock, latest_price: float | None) -> 
         stop_method=row.stop_method,
         latest_price=latest_price,
         trigger_state=trigger_state(latest_price, float(row.entry_low), entry_high),
-        # Both measured from the top of the entry zone, so they are directly
-        # comparable to each other and to the stated risk:reward.
+        # Both measured from the top of the entry zone — the worst fill inside
+        # the published zone — so they are directly comparable to each other
+        # and to the stated risk_reward, which levels.py now measures from the
+        # same reference. It previously reported the NOMINAL ratio the target
+        # was built from, which made this comment false by up to 4x in the
+        # optimistic direction.
         upside_pct=round((target - entry_high) / entry_high * 100, 2),
         downside_pct=round((stop - entry_high) / entry_high * 100, 2),
         rationale=row.rationale,

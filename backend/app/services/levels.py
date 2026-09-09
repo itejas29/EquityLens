@@ -28,7 +28,28 @@ class Levels:
     entry_high: float
     stop_loss: float
     target_price: float
+    # REALISED risk:reward, measured from entry_high — the worst fill inside
+    # the published entry zone, and the same reference /daily-signals already
+    # measures upside_pct and downside_pct against.
+    #
+    # This used to report the NOMINAL params.risk_reward_ratio, which is the
+    # parameter the target was constructed from and not what a buyer gets. The
+    # target is built from the CLOSE (entry + rr * (entry - stop)), while the
+    # zone extends half an ATR ABOVE that close, so paying entry_high buys less
+    # upside and more downside than the nominal figure claims — always in the
+    # optimistic direction. For the live V1 parameters (4.0 ATR stop, no
+    # support stop, rr 2.0) the true figure is 1.67, reported as 2.00: a 20%
+    # overstatement on every published BUY. With the support stop enabled it
+    # can invert entirely — a measured synthetic case gave 0.50 against a
+    # reported 2.00.
+    #
+    # Nothing selects on this field; every consumer stores or displays it. So
+    # correcting it changes what is reported, not what is traded. DailySignal
+    # rows written before this change still carry the nominal value.
     risk_reward: float
+    # The parameter the target was built from, kept so the geometry is still
+    # visible next to the realised outcome.
+    risk_reward_nominal: float
     stop_method: str  # "atr" or "support"
     # Carried explicitly rather than left to be inferred from the zone width.
     # The zone is now symmetrical: [close - 0.5*ATR, close + 0.5*ATR], so its 
@@ -128,12 +149,22 @@ def compute_levels(price_df: pd.DataFrame, params: "StrategyParams | None" = Non
     risk_per_share = entry - stop_loss
     target_price = entry + params.risk_reward_ratio * risk_per_share
 
+    # Rounded first, then measured: the realised ratio must describe the levels
+    # actually published, not the unrounded intermediates behind them.
+    entry_high_r = round(entry_high, 2)
+    stop_loss_r = round(stop_loss, 2)
+    target_price_r = round(target_price, 2)
+
+    downside = entry_high_r - stop_loss_r
+    realised_rr = round((target_price_r - entry_high_r) / downside, 4) if downside > 0 else 0.0
+
     return Levels(
         entry_low=round(entry_low, 2),
-        entry_high=round(entry_high, 2),
-        stop_loss=round(stop_loss, 2),
-        target_price=round(target_price, 2),
-        risk_reward=params.risk_reward_ratio,
+        entry_high=entry_high_r,
+        stop_loss=stop_loss_r,
+        target_price=target_price_r,
+        risk_reward=realised_rr,
+        risk_reward_nominal=params.risk_reward_ratio,
         stop_method=stop_method,
         atr=round(latest_atr, 2),
     )
@@ -163,12 +194,24 @@ def levels_from_atr(entry: float, latest_atr: float, support_low: float | None, 
 
     risk_per_share = entry - stop_loss
     entry_high = entry + params.entry_zone_atr_multiplier * latest_atr
+
+    # Identical to compute_levels, deliberately — "kept beside compute_levels so
+    # the two cannot drift apart" is the whole reason this function lives here,
+    # and this is the backtest's path, so a divergence would put the research
+    # engine and the published signal on different definitions.
+    entry_high_r = round(entry_high, 2)
+    stop_loss_r = round(stop_loss, 2)
+    target_price_r = round(entry + params.risk_reward_ratio * risk_per_share, 2)
+    downside = entry_high_r - stop_loss_r
+    realised_rr = round((target_price_r - entry_high_r) / downside, 4) if downside > 0 else 0.0
+
     return Levels(
         entry_low=round(entry_low, 2),
-        entry_high=round(entry_high, 2),
-        stop_loss=round(stop_loss, 2),
-        target_price=round(entry + params.risk_reward_ratio * risk_per_share, 2),
-        risk_reward=params.risk_reward_ratio,
+        entry_high=entry_high_r,
+        stop_loss=stop_loss_r,
+        target_price=target_price_r,
+        risk_reward=realised_rr,
+        risk_reward_nominal=params.risk_reward_ratio,
         stop_method=stop_method,
         atr=round(latest_atr, 2),
     )
