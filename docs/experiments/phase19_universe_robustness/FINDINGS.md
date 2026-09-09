@@ -113,3 +113,38 @@ python scripts/phase19_universe_robustness.py    # refuses below 1000 active
 ```
 
 Raw per-fold metrics: `results.json`.
+
+## Addendum 2 — fold 8, the last apparent signal, is the noisiest fold
+
+Phase 18's case for a deeper universe rested almost entirely on fold 8
+(2021-09-26 to 2022-03-27, a correction, NIFTY −3.93%): top750/top1000 returned
++26.96% there against top500's −11.40%, a +38pp swing. Removing that one fold
+flipped the 750-vs-500 mean from +1.84pp to −0.59pp.
+
+Running the same fold across Phase 19's seven constructions explains it:
+
+| construction | ret% | win% |
+|---|---|---|
+| pit_top500 | −11.40 | 23.1 |
+| current_top500 | +4.79 | 41.4 |
+| pit_top500_60d | +7.25 | 43.3 |
+| random500_s1 | +16.08 | 50.0 |
+| random500_s2 | +14.92 | 53.9 |
+| random500_s3 | +54.09 | 66.7 |
+| bottom500 | +26.39 | 53.6 |
+
+Spread across constructions in this fold alone: **65.49pp**, against a median
+fold spread of 18.67pp — it is the noisiest window in the study by a wide
+margin, and a change of random seed moves it from +16% to +54%.
+
+Phase 18's 500-name baseline (`pit_top500`) happened to be the worst of all
+seven constructions in precisely that fold. The apparent depth effect was one
+unlucky baseline in the highest-variance window, not a regime in which deeper
+universes help.
+
+Note also that top750 and top1000 were byte-identical in fold 8: names ranked
+751–1000 changed no trades at all. Whatever difference existed came entirely
+from ranks 501–750, and it does not survive re-drawing membership.
+
+**Consequence:** the last place the data hinted at something real is accounted
+for. No lead remains from this line of investigation.
