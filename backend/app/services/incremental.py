@@ -9,6 +9,28 @@ universe-membership rebuild.
 IDEMPOTENCY: running this twice produces the same DB state because
 upsert_price_history uses ON CONFLICT DO UPDATE on (stock_id, date).
 
+CORPORATE ACTIONS. A gap-fill has one failure mode a full re-download does not:
+the provider can RESTATE history underneath it. yfinance returns split-adjusted
+prices — verified against BAJFINANCE.NS's 2:1 on 2025-06-16, where the close
+goes 936.85 -> 938.00 across the split rather than halving, and auto_adjust
+turns out to control dividends, not splits. That adjustment is applied to the
+WHOLE series retroactively. Fetching only bars after the last stored date
+therefore leaves everything before the split on the old basis and everything
+after it on the new one, and the stored series acquires a permanent artificial
+gap the size of the split ratio.
+
+That is not cosmetic for this app. V1 ranks on 12-month momentum, so a 2:1
+split makes a stock read as -50% for a year (it never gets bought — the safe
+direction), while a bonus or consolidation that reads positive puts it at the
+TOP of the ranking and gets it bought on an event that never happened. Indian
+bonus issues are common and Yahoo reports them as splits: NESTLEIND 10:1 in
+2024 and 2:1 in 2025, BSE 3:1 twice, TRENT 1.5:1 — all inside the universe.
+
+The fix costs no extra requests: the incremental window is extended backwards
+by RESTATEMENT_OVERLAP_DAYS so it re-returns bars already stored, those are
+compared against what is on disk, and any symbol whose past has moved is
+re-pulled in full instead of being appended to. See _detect_restatement.
+
 INDICATOR RECOMPUTATION: indicators (RSI, MACD, beta, etc.) are recomputed
 from the full stored price series, not just the new bars, because several
 indicators (Wilder RSI, MACD EMA) are recursive and require the complete
@@ -37,6 +59,20 @@ from app.services.ingestion import upsert_indicators, upsert_price_history
 logger = logging.getLogger(__name__)
 
 
+# How far back the incremental window reaches beyond what is strictly needed.
+# Purely to re-receive bars already on disk so they can be compared — see the
+# corporate-actions note above. ~6 trading days, enough to survive a long
+# weekend plus a holiday and still overlap.
+RESTATEMENT_OVERLAP_DAYS = 10
+
+# A stored and a freshly-fetched close for the SAME date should be identical.
+# They are compared with a tolerance anyway because the stored value is
+# Numeric(12,2) and the fetched one is a float64. 1% sits far above that noise
+# and far below the smallest corporate action worth acting on (a 1.05:1 bonus
+# moves the price ~4.8%).
+RESTATEMENT_TOLERANCE_PCT = 1.0
+
+
 @dataclass
 class SymbolResult:
     symbol: str
@@ -59,6 +95,11 @@ class IncrementalResult:
     # while almost nothing had actually updated.
     stale: int = 0
     failed: int = 0
+    # Symbols whose stored history no longer matched what the provider returned
+    # for the same dates — a split, bonus or other restatement. Counted, not
+    # failed: each one is re-pulled in full in the same run, and the re-pull
+    # reports its own SUCCESS or failure.
+    restated: int = 0
     results: list[SymbolResult] = field(default_factory=list)
     seconds: float = 0.0
 
@@ -93,6 +134,43 @@ def _get_latest_dates(db: Session, stock_ids: list[int]) -> dict[int, date_type 
         .all()
     )
     return {stock_id: max_date for stock_id, max_date in rows}
+
+
+def _stored_closes(db: Session, stock_id: int, since: date_type) -> dict[date_type, float]:
+    """Closes already on disk for this stock from `since` onwards."""
+    rows = (
+        db.query(PriceHistory.date, PriceHistory.close)
+        .filter(PriceHistory.stock_id == stock_id, PriceHistory.date >= since,
+                PriceHistory.close.isnot(None))
+        .all()
+    )
+    return {d: float(close) for d, close in rows}
+
+
+def _detect_restatement(
+    stored: dict[date_type, float], fetched: pd.DataFrame
+) -> tuple[date_type, float, float] | None:
+    """First date where the provider now disagrees with what is on disk.
+
+    Returns (date, stored_close, fetched_close), or None if every overlapping
+    date matches. A disagreement means the past changed — a split, a bonus, or
+    a correction — and appending to that history would splice two different
+    price bases together.
+
+    Only dates present on BOTH sides are compared: a date we have and the
+    provider no longer returns is outside the fetch window, not a restatement.
+    """
+    if not stored or fetched.empty:
+        return None
+
+    for row in fetched.itertuples(index=False):
+        previous = stored.get(row.date)
+        if previous is None or previous == 0:
+            continue
+        current = float(row.close)
+        if abs(current - previous) / previous * 100 > RESTATEMENT_TOLERANCE_PCT:
+            return row.date, previous, current
+    return None
 
 
 def _classify_missing_symbol(symbol: str, has_prior_data: bool) -> IngestionStatus:
@@ -346,7 +424,8 @@ def _process_incremental_pulls(
     benchmark_df: pd.DataFrame,
     result: IncrementalResult,
 ) -> None:
-    """Incremental pulls: fetch only bars after each stock's latest stored date."""
+    """Incremental pulls: fetch bars after each stock's latest stored date, plus
+    an overlap window used only to check that the past has not been restated."""
     # Group into batches. All symbols in a batch share the same start date
     # (the oldest start date in the batch) — this over-fetches slightly for
     # recently-updated stocks but keeps the download batched.
@@ -356,6 +435,10 @@ def _process_incremental_pulls(
     # fetch-window start — a symbol further ahead in the batch must be judged
     # against what it actually needed, not another symbol's earlier gap.
     symbol_to_start = {s.symbol: start for s, start in stocks_with_start}
+    # Symbols whose stored history disagreed with the provider. Collected
+    # across all batches and re-pulled in full at the end, because appending to
+    # a restated series splices two price bases together.
+    needs_repull: list[Stock] = []
 
     for batch_idx, batch_start_idx in enumerate(range(0, len(symbols_and_starts), DOWNLOAD_BATCH_SIZE)):
         batch = symbols_and_starts[batch_start_idx : batch_start_idx + DOWNLOAD_BATCH_SIZE]
@@ -363,8 +446,11 @@ def _process_incremental_pulls(
         total_batches = (len(symbols_and_starts) + DOWNLOAD_BATCH_SIZE - 1) // DOWNLOAD_BATCH_SIZE
 
         batch_symbols = [sym for sym, _ in batch]
-        # Use the oldest start date in this batch so we don't miss bars for any symbol.
-        batch_start_date = min(start for _, start in batch)
+        # Oldest start in the batch so no symbol misses bars, minus the overlap
+        # window. The overlap costs nothing — same request count, a handful of
+        # extra daily rows — and is the only way to notice that the provider
+        # has rewritten dates we already hold.
+        batch_start_date = min(start for _, start in batch) - timedelta(days=RESTATEMENT_OVERLAP_DAYS)
 
         try:
             frames = _download_incremental_batch(batch_symbols, batch_start_date, end_date)
@@ -397,6 +483,31 @@ def _process_incremental_pulls(
                 stock = symbol_to_stock[sym]
                 start_date = symbol_to_start[sym]
                 normalised = _normalise_df(df)
+
+                # Compare the overlap against what is on disk BEFORE writing
+                # anything. A mismatch means the provider restated this
+                # symbol's past; upserting now would leave the pre-event bars
+                # on the old basis and the new ones on the new basis.
+                restated = _detect_restatement(
+                    _stored_closes(db, stock.id, batch_start_date), normalised
+                )
+                if restated is not None:
+                    when, was, now = restated
+                    ratio = was / now if now else float("inf")
+                    logger.warning(
+                        "pipeline.incremental.restated symbol=%s date=%s stored=%.2f fetched=%.2f "
+                        "ratio=%.4f — full re-pull queued",
+                        sym, when, was, now, ratio,
+                    )
+                    result.restated += 1
+                    result.results.append(SymbolResult(
+                        sym, IngestionStatus.CORPORATE_ACTION,
+                        error=(f"history restated at {when}: stored {was:.2f} vs fetched {now:.2f} "
+                               f"(x{ratio:.4f}) — re-pulling full history"),
+                    ))
+                    needs_repull.append(stock)
+                    continue
+
                 bars = upsert_price_history(db, stock.id, normalised)
                 latest = normalised["date"].max() if not normalised.empty else None
 
@@ -445,3 +556,13 @@ def _process_incremental_pulls(
         )
 
         trim_every(batch_num, every=1)
+
+    # Re-pull restated symbols in full. _process_full_pulls upserts the entire
+    # series, so ON CONFLICT DO UPDATE rewrites every stored bar onto the
+    # provider's current basis — which is precisely the repair needed.
+    if needs_repull:
+        logger.warning(
+            "pipeline.incremental.repull count=%d symbols=%s",
+            len(needs_repull), ", ".join(s.symbol for s in needs_repull),
+        )
+        _process_full_pulls(db, needs_repull, benchmark_df, result)
