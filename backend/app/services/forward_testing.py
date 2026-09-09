@@ -9,7 +9,7 @@ from app.models.daily_signal import DailySignal, SignalOutcome
 from app.models.paper_trading import PaperAccount, PaperEquitySnapshot
 from app.models.price_history import PriceHistory
 from app.services.market_data import fetch_price_history
-from app.services.paper_trading import get_account_summary
+from app.services.paper_trading import get_account_summary, to_money
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,13 @@ def record_paper_snapshot(db: Session, account_id: int, date: date_type) -> Pape
         if nifty_start_close:
             nifty_return = float((nifty_end_close - nifty_start_close) / nifty_start_close * 100)
     
-    # Calculate daily_return and cumulative_return
-    # Cumulative is simply (equity - initial_capital) / initial_capital
-    cumulative_return = (summary.equity - float(account.virtual_capital)) / float(account.virtual_capital) * 100
+    # Calculate daily_return and cumulative_return.
+    # Cumulative is simply (equity - initial_capital) / initial_capital.
+    # Decimal throughout: summary.equity is Decimal and virtual_capital comes
+    # back from Numeric(12,2) as Decimal, so mixing in a float here would both
+    # raise TypeError and reintroduce the drift paper_trading.py just removed.
+    capital = to_money(account.virtual_capital)
+    cumulative_return = (summary.equity - capital) / capital * Decimal(100)
     
     # For daily return, get the snapshot from the previous trading day
     prev_snapshot = db.query(PaperEquitySnapshot).filter(
@@ -63,8 +67,8 @@ def record_paper_snapshot(db: Session, account_id: int, date: date_type) -> Pape
     ).order_by(PaperEquitySnapshot.date.desc()).first()
     
     if prev_snapshot:
-        prev_eq = float(prev_snapshot.total_equity)
-        daily_return = (summary.equity - prev_eq) / prev_eq * 100 if prev_eq > 0 else 0.0
+        prev_eq = to_money(prev_snapshot.total_equity)
+        daily_return = (summary.equity - prev_eq) / prev_eq * Decimal(100) if prev_eq > 0 else Decimal("0")
     else:
         # First day
         daily_return = cumulative_return

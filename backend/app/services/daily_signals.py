@@ -18,6 +18,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -548,10 +549,15 @@ def available_dates(db: Session, limit: int = 30) -> list[date_type]:
     return [r[0] for r in rows]
 
 
-def trigger_state(latest_price: float | None, entry_low: float, entry_high: float) -> str:
+def trigger_state(latest_price: Decimal | float | None,
+                  entry_low: Decimal | float, entry_high: Decimal | float) -> str:
     """Where the live price sits relative to the frozen entry zone. Computed at
     read time, not stored — the zone is the fixed part of the call, the price
     is not.
+
+    Comparison only, never arithmetic, so Decimal and float callers can both
+    use it (Decimal supports ordering against float exactly; it is `+ - * /`
+    that raises). The AI trading path passes Decimal end to end.
     """
     if latest_price is None:
         return "UNKNOWN"

@@ -10,6 +10,7 @@ see AITradingCycleResult for what a caller gets back.
 
 from dataclasses import dataclass, field
 from datetime import date as date_type
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,7 @@ from app.services.paper_trading import (
     buy,
     get_or_create_account,
     sell,
+    to_money,
 )
 
 
@@ -61,12 +63,25 @@ def _is_rebalance_day(db: Session, as_of: date_type) -> bool:
     rather than the calendar so a missed day (holiday, outage) doesn't skip the
     month's only rebalance — whichever day the loop first runs takes it. The
     caller creates this cycle's own row before calling, hence `< as_of`.
+
+    status == "complete" is load-bearing, not defensive tidiness. run_date is
+    UNIQUE and the caller writes the row before trading, then marks it "failed"
+    if the cycle raises. Counting a failed row as the month's rebalance meant a
+    single transient failure on the 1st (a yfinance timeout, a DB blip) left
+    the account running stop/target checks only for the rest of the month, with
+    no entries and nothing saying so. A row still stuck at "running" — the
+    process died mid-cycle — is excluded for the same reason: nothing was
+    committed, so nothing was rebalanced.
     """
     from app.models.ai_trading_run import AITradingRun
 
     prior_this_month = (
         db.query(AITradingRun)
-        .filter(AITradingRun.run_date >= as_of.replace(day=1), AITradingRun.run_date < as_of)
+        .filter(
+            AITradingRun.run_date >= as_of.replace(day=1),
+            AITradingRun.run_date < as_of,
+            AITradingRun.status == "complete",
+        )
         .first()
     )
     return prior_this_month is None
@@ -94,23 +109,53 @@ def _open_trades(db: Session, account: PaperAccount) -> list[PaperTrade]:
     return db.query(PaperTrade).filter(PaperTrade.account_id == account.id, PaperTrade.status == "open").all()
 
 
+def _invested_value(trades: list[PaperTrade], marks: dict[int, Decimal]) -> Decimal:
+    """Mark-to-market value of the open book, in Decimal.
+
+    A position with no mark contributes 0 — the same treatment the old float
+    version gave it via marks.get(id, 0.0). That is deliberate but not free:
+    an unpriceable holding makes the book look smaller than it is, so the
+    exposure cap below is measured against an understated `invested`. It is
+    the conservative direction for a trim (less selling) and the aggressive
+    one for entries, which is why the buy pass also re-checks cash per trade.
+    """
+    return sum(
+        (marks[t.stock_id] * Decimal(t.quantity) for t in trades if t.stock_id in marks),
+        Decimal(0),
+    )
+
+
 def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type,
                regime: dict, is_rebalance: bool) -> list[dict]:
     results: list[dict] = []
 
     # Pass 1: each position's own stop/target/horizon — independent of every other holding.
-    for t in _open_trades(db, account):
-        stock = db.query(Stock).filter(Stock.id == t.stock_id).first()
+    # Marks are taken ONCE for the whole pass, not per position. Beyond the
+    # obvious N+1 (a price-feed read and a stocks query per holding), pricing
+    # each position off its own fresh snapshot meant two holdings in the same
+    # cycle could be judged against ticks captured seconds apart — one exit
+    # decision made on a tape the next one no longer saw.
+    pass1_trades = _open_trades(db, account)
+    pass1_marks = _mark_prices(db, [t.stock_id for t in pass1_trades])
+    stock_ids = [t.stock_id for t in pass1_trades]
+    pass1_stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_(stock_ids)).all()} if stock_ids else {}
+
+    for t in pass1_trades:
+        stock = pass1_stocks.get(t.stock_id)
         if stock is None:
             continue
-        price = _mark_prices(db, [t.stock_id]).get(t.stock_id)
+        price = pass1_marks.get(t.stock_id)
         if price is None:
             continue
 
         reason = None
-        if t.stop_loss is not None and price <= float(t.stop_loss):
+        # to_money on the stop/target too: they come back from Numeric(12,2) as
+        # Decimal already, but a trade written by an older code path can hold a
+        # float, and Decimal-vs-float comparison silently compares an exact
+        # value against a binary approximation of it.
+        if t.stop_loss is not None and price <= to_money(t.stop_loss):
             reason = "stop"
-        elif t.target_price is not None and price >= float(t.target_price):
+        elif t.target_price is not None and price >= to_money(t.target_price):
             reason = "target"
         elif (as_of - t.executed_at.date()).days >= V1.horizon_days:
             reason = "horizon"
@@ -118,35 +163,39 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
         if reason is not None:
             trade = sell(db, user_id, stock.symbol)
             trade.exit_reason = reason
-            results.append({"symbol": stock.symbol, "reason": reason, "pnl": float(trade.pnl)})
+            results.append({"symbol": stock.symbol, "reason": reason, "pnl": trade.pnl})
 
     # Pass 2: regime exposure trim, weakest entry_score first, only if still over the
     # cap after pass 1 — and only on a rebalance day, matching backtest.py, which gates
     # this behind `today in rebalance_dates`. See _is_rebalance_day for what running it
     # daily actually cost.
-    exposure_target = regime.get("exposure", 1.0)
-    if is_rebalance and exposure_target < 1.0:
+    # exposure is a fraction (1.0 bull / 0.25 bear), not money — but it
+    # multiplies equity, so it enters the ledger arithmetic and has to be
+    # Decimal or the multiplication raises.
+    exposure_target = Decimal(str(regime.get("exposure", 1.0)))
+    if is_rebalance and exposure_target < 1:
         open_trades = _open_trades(db, account)
         if open_trades:
             marks = _mark_prices(db, [t.stock_id for t in open_trades])
-            invested = sum(marks.get(t.stock_id, 0.0) * t.quantity for t in open_trades)
-            equity = float(account.cash) + invested
+            invested = _invested_value(open_trades, marks)
+            equity = to_money(account.cash) + invested
             target_invested = equity * exposure_target
             ordered = sorted(
                 open_trades,
-                key=lambda t: (t.entry_score is None, float(t.entry_score) if t.entry_score is not None else -1.0),
+                key=lambda t: (t.entry_score is None, to_money(t.entry_score) if t.entry_score is not None else Decimal(-1)),
             )
+            trim_stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([t.stock_id for t in ordered])).all()}
             for t in ordered:
                 if invested <= target_invested:
                     break
-                stock = db.query(Stock).filter(Stock.id == t.stock_id).first()
+                stock = trim_stocks.get(t.stock_id)
                 if stock is None:
                     continue
                 price = marks.get(t.stock_id)
                 trade = sell(db, user_id, stock.symbol)
                 trade.exit_reason = "regime"
-                invested -= (price or 0.0) * t.quantity
-                results.append({"symbol": stock.symbol, "reason": "regime", "pnl": float(trade.pnl)})
+                invested -= (price or Decimal(0)) * Decimal(t.quantity)
+                results.append({"symbol": stock.symbol, "reason": "regime", "pnl": trade.pnl})
 
     return results
 
@@ -163,11 +212,11 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
 
     open_trades = _open_trades(db, account)
     marks = _mark_prices(db, [t.stock_id for t in open_trades])
-    invested = sum(marks.get(t.stock_id, 0.0) * t.quantity for t in open_trades)
-    equity = float(account.cash) + invested
-    exposure_target = regime.get("exposure", 1.0)
+    invested = _invested_value(open_trades, marks)
+    equity = to_money(account.cash) + invested
+    exposure_target = Decimal(str(regime.get("exposure", 1.0)))
     target_invested = equity * exposure_target
-    per_position_budget = equity / MAX_SIGNALS
+    per_position_budget = equity / Decimal(MAX_SIGNALS)
 
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}
     candidate_prices = _mark_prices(db, [r.stock_id for r in rows if r.stock_id not in held_stock_ids])
@@ -183,7 +232,7 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
             continue
 
         price = candidate_prices.get(row.stock_id)
-        state = trigger_state(price, float(row.entry_low), float(row.entry_high))
+        state = trigger_state(price, to_money(row.entry_low), to_money(row.entry_high))
         if state != "IN_ZONE" or price is None:
             continue
 
@@ -199,7 +248,7 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         trade.stop_loss = row.stop_loss
         trade.target_price = row.target_price
         trade.entry_score = row.overall_score
-        invested += price * qty
+        invested += price * Decimal(qty)
         slots_available -= 1
         results.append({"symbol": stock.symbol, "quantity": qty, "price": price})
 

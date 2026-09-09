@@ -65,15 +65,20 @@ def paper_account(current_user: User = Depends(get_current_user), db: Session = 
     summary = get_account_summary(db, current_user.id)
     db.commit()
 
+    # float() here, explicitly, is the API boundary: money is Decimal
+    # everywhere behind it (see services/paper_trading.py). Pydantic would
+    # coerce a Decimal into these float fields silently, which is exactly why
+    # the conversion is written out — so the one place precision is dropped is
+    # visible, and JSON stays a number rather than a quoted string.
     holdings = [
         PaperHoldingResponse(
             trade_id=h.trade.id,
             symbol=h.symbol,
             quantity=h.trade.quantity,
             entry_price=float(h.trade.price),
-            current_price=h.current_price,
-            unrealized_pnl=h.unrealized_pnl,
-            unrealized_pnl_pct=h.unrealized_pnl_pct,
+            current_price=float(h.current_price) if h.current_price is not None else None,
+            unrealized_pnl=float(h.unrealized_pnl) if h.unrealized_pnl is not None else None,
+            unrealized_pnl_pct=float(h.unrealized_pnl_pct) if h.unrealized_pnl_pct is not None else None,
         )
         for h in summary.holdings
     ]
@@ -81,12 +86,12 @@ def paper_account(current_user: User = Depends(get_current_user), db: Session = 
     return PaperAccountResponse(
         virtual_capital=float(summary.account.virtual_capital),
         cash=float(summary.account.cash),
-        equity=summary.equity,
-        market_value=summary.market_value,
-        realized_pnl=summary.realized_pnl,
-        unrealized_pnl=summary.unrealized_pnl,
-        win_rate=summary.win_rate,
-        current_drawdown_pct=summary.current_drawdown_pct,
+        equity=float(summary.equity),
+        market_value=float(summary.market_value),
+        realized_pnl=float(summary.realized_pnl),
+        unrealized_pnl=float(summary.unrealized_pnl),
+        win_rate=float(summary.win_rate) if summary.win_rate is not None else None,
+        current_drawdown_pct=float(summary.current_drawdown_pct),
         holdings=holdings,
     )
 

@@ -1,8 +1,19 @@
-import os
+"""Ad-hoc inspection of the live momentum ranking. NOT a test.
+
+Renamed out of backend/test_momentum.py: pytest collects test_*.py by
+filename, so sitting at the backend root it was auto-run by any `pytest`
+invocation — and it opens SessionLocal(), i.e. the PRODUCTION database, at
+import time. It also hard-coded an absolute path to a machine-specific copy of
+the repo that is no longer the working tree.
+
+Run deliberately:  python -m scripts.inspect_momentum   (from backend/)
+"""
+
 import sys
 from datetime import date as date_type
+from pathlib import Path
 
-sys.path.insert(0, "/Users/tejassingh/Desktop/College/Projects/EquityLens/backend")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.database import SessionLocal
 from app.services.daily_signals import _momentum_scores

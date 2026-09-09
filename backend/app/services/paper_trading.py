@@ -10,10 +10,27 @@ rounded to the paisa, so multiplying it back out drifts from the ledger by up
 to half a paisa per share per leg, in one systematic direction, accumulating
 across trades. Cash is rounded exactly once per leg (at `cost_basis` and at
 `proceeds`) and everything downstream reads those rounded figures.
+
+MONEY IS DECIMAL, NEVER FLOAT. The columns were always Numeric(12,2), but this
+module used to read them out with float() and do every calculation in binary
+floating point before writing back. That made the identity above false: over
+2,000 simulated round trips the residual was 2.3e-09 rather than 0, and cash
+diverged from the exact ledger by 2 paisa. Binary floating point cannot
+represent 0.01, so no amount of round(x, 2) recovers it — the error is in the
+accumulation, not the display.
+
+Every figure that is or becomes money stays Decimal from the database through
+the arithmetic and back. Prices arriving as float from the quote feed are
+converted with Decimal(str(x)), not Decimal(x), so they do not carry the
+float's own representation error in. Quantisation to the paisa happens exactly
+where cash moves, with ROUND_HALF_UP — bankers' rounding (Python's default) is
+wrong for an exchange ledger. Conversion to float happens only at the API
+boundary, where Pydantic serialises the response.
 """
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +41,11 @@ from app.models.price_history import PriceHistory
 from app.models.stock import Stock
 from app.services.market import get_price_feed
 
+PAISA = Decimal("0.01")
+# Round-trip rate as an exact decimal. float(0.0012) is 0.001199999... which
+# would seed error into every cost calculation before rounding ever happens.
+TRANSACTION_COST = Decimal(str(DEFAULT_TRANSACTION_COST_PCT))
+
 
 class PaperTradingError(Exception):
     def __init__(self, message: str):
@@ -31,8 +53,33 @@ class PaperTradingError(Exception):
         super().__init__(message)
 
 
-def _half_cost(fill_price: float, quantity: int) -> float:
-    return fill_price * quantity * (DEFAULT_TRANSACTION_COST_PCT / 2)
+def to_money(value) -> Decimal:
+    """Coerce a price/amount to Decimal without importing float error.
+
+    Decimal(0.1) is 0.1000000000000000055511151231257827; Decimal("0.1") is
+    exactly 0.1. Quote-feed prices arrive as float, so the str() detour is what
+    keeps a 2-decimal NSE price exact.
+    """
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def quantise(amount: Decimal) -> Decimal:
+    """Round to the paisa, half away from zero — how an exchange settles.
+
+    Python's round() and Decimal's default ROUND_HALF_EVEN both round .005 to
+    the nearest even digit, which is right for statistics and wrong for a
+    ledger: it makes rounding direction depend on the preceding digit.
+    """
+    return amount.quantize(PAISA, rounding=ROUND_HALF_UP)
+
+
+def _half_cost(fill_price: Decimal, quantity: int) -> Decimal:
+    """Commission on one leg. Not quantised — the caller folds it into the
+    single cash figure that does get quantised, so the paisa is rounded once
+    per leg rather than twice."""
+    return fill_price * Decimal(quantity) * (TRANSACTION_COST / 2)
 
 
 def get_or_create_account(db: Session, user_id: int) -> PaperAccount:
@@ -51,14 +98,14 @@ def get_or_create_account(db: Session, user_id: int) -> PaperAccount:
     return account
 
 
-def _latest_close(db: Session, stock_id: int) -> float | None:
+def _latest_close(db: Session, stock_id: int) -> Decimal | None:
     row = db.query(PriceHistory).filter(PriceHistory.stock_id == stock_id).order_by(PriceHistory.date.desc()).first()
     if row is None or row.close is None:
         return None
-    return float(row.close)
+    return to_money(row.close)
 
 
-def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, float]:
+def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, Decimal]:
     """Valuation price per stock_id: the tape when it carries the symbol,
     otherwise the newest stored daily bar.
 
@@ -76,14 +123,14 @@ def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, float]:
         return {}
 
     feed = get_price_feed()
-    marks: dict[int, float] = {}
+    marks: dict[int, Decimal] = {}
     for stock_id, symbol in db.query(Stock.id, Stock.symbol).filter(Stock.id.in_(stock_ids)).all():
         quote = feed.prices.get(symbol)
         price = quote.get("price") if quote else None
         if price is None:
             price = _latest_close(db, stock_id)
         if price is not None:
-            marks[stock_id] = float(price)
+            marks[stock_id] = to_money(price)
     return marks
 
 
@@ -109,7 +156,7 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
     quote = feed.prices.get(stock.symbol)
     fill_price = None
     if quote and quote.get("price"):
-        fill_price = float(quote["price"])
+        fill_price = to_money(quote["price"])
     else:
         close = _latest_close(db, stock.id)
         if close is not None:
@@ -119,27 +166,27 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
         raise PaperTradingError(f"No price data available for '{stock.symbol}'")
 
     cost = _half_cost(fill_price, quantity)
-    # Rounded once, here. This single figure is both what leaves the cash
+    # Quantised once, here. This single figure is both what leaves the cash
     # balance and what all later P&L on this position is measured against.
-    cost_basis = round(fill_price * quantity + cost, 2)
-    if cost_basis > float(account.cash):
+    cost_basis = quantise(fill_price * Decimal(quantity) + cost)
+    if cost_basis > to_money(account.cash):
         raise PaperTradingError("Insufficient cash for this trade")
 
     # Reported per-share entry: display/reference only, never a P&L input.
-    effective_entry = fill_price + cost / quantity
+    effective_entry = fill_price + cost / Decimal(quantity)
 
     trade = PaperTrade(
         account_id=account.id,
         stock_id=stock.id,
         side="buy",
         quantity=quantity,
-        price=round(effective_entry, 2),
+        price=quantise(effective_entry),
         cost_basis=cost_basis,
         status="open",
     )
     db.add(trade)
 
-    account.cash = round(float(account.cash) - cost_basis, 2)
+    account.cash = quantise(to_money(account.cash) - cost_basis)
     # Flush before ratcheting: the peak-equity query below reads open
     # positions straight from the DB (autoflush is off on this session), so
     # the just-added trade must be persisted first or it won't be counted.
@@ -168,7 +215,7 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
     quote = feed.prices.get(stock.symbol)
     fill_price = None
     if quote and quote.get("price"):
-        fill_price = float(quote["price"])
+        fill_price = to_money(quote["price"])
     else:
         close = _latest_close(db, stock.id)
         if close is not None:
@@ -178,19 +225,21 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
         raise PaperTradingError(f"No price data available for '{stock.symbol}'")
 
     cost = _half_cost(fill_price, trade.quantity)
-    # Rounded once, mirroring cost_basis on the buy leg.
-    proceeds = round(fill_price * trade.quantity - cost, 2)
-    effective_exit = fill_price - cost / trade.quantity
+    # Quantised once, mirroring cost_basis on the buy leg.
+    proceeds = quantise(fill_price * Decimal(trade.quantity) - cost)
+    effective_exit = fill_price - cost / Decimal(trade.quantity)
     # Difference of the two actual cash movements, so realized P&L ties out to
-    # the ledger exactly rather than to the rounded per-share prices.
-    pnl = proceeds - float(trade.cost_basis)
+    # the ledger exactly rather than to the rounded per-share prices. Both are
+    # already quantised, so their difference is exact in Decimal and needs no
+    # further rounding — quantise() here would be a no-op, not a correction.
+    pnl = proceeds - to_money(trade.cost_basis)
 
-    trade.exit_price = round(effective_exit, 2)
+    trade.exit_price = quantise(effective_exit)
     trade.exit_at = datetime.now(timezone.utc)
     trade.status = "closed"
-    trade.pnl = round(pnl, 2)
+    trade.pnl = pnl
 
-    account.cash = round(float(account.cash) + proceeds, 2)
+    account.cash = to_money(account.cash) + proceeds
     # Same reasoning as buy(): flush the status="closed" change first so the
     # ratchet's open-positions query doesn't still see this trade as open
     # (which would double-count it — once via the cash just credited, once
@@ -205,28 +254,30 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
 class HoldingView:
     trade: PaperTrade
     symbol: str
-    current_price: float | None
-    unrealized_pnl: float | None
-    unrealized_pnl_pct: float | None
+    current_price: Decimal | None
+    unrealized_pnl: Decimal | None
+    # A percentage, not money: it is a ratio of two exact amounts, reported to
+    # two places for display. Kept Decimal so the whole view is one type.
+    unrealized_pnl_pct: Decimal | None
 
 
 @dataclass
 class AccountSummary:
     account: PaperAccount
     holdings: list[HoldingView]
-    market_value: float
-    equity: float
-    realized_pnl: float
-    unrealized_pnl: float
-    win_rate: float | None
-    current_drawdown_pct: float
+    market_value: Decimal
+    equity: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    win_rate: Decimal | None
+    current_drawdown_pct: Decimal
 
 
 def _ratchet_peak_equity(db: Session, account: PaperAccount) -> None:
     """Recompute equity now and raise peak_equity if it's a new high —
     called on every trade so drawdown has an up-to-date reference point."""
     open_trades = db.query(PaperTrade).filter(PaperTrade.account_id == account.id, PaperTrade.status == "open").all()
-    market_value = 0.0
+    market_value = Decimal("0")
     for t in open_trades:
         # Stored closes, NOT the live mark: peak equity is persisted, so pricing
         # it intraday would ratchet the peak higher every time someone happened
@@ -235,10 +286,10 @@ def _ratchet_peak_equity(db: Session, account: PaperAccount) -> None:
         # when it was looked at — so the peak moves close-to-close.
         close = _latest_close(db, t.stock_id)
         if close is not None:
-            market_value += close * t.quantity
-    equity = float(account.cash) + market_value
-    if equity > float(account.peak_equity):
-        account.peak_equity = round(equity, 2)
+            market_value += close * Decimal(t.quantity)
+    equity = to_money(account.cash) + market_value
+    if equity > to_money(account.peak_equity):
+        account.peak_equity = quantise(equity)
 
 
 def get_account_summary(db: Session, user_id: int) -> AccountSummary:
@@ -251,8 +302,8 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
     closed_trades = [t for t in all_trades if t.status == "closed"]
 
     holdings: list[HoldingView] = []
-    market_value = 0.0
-    unrealized_pnl_total = 0.0
+    market_value = Decimal("0")
+    unrealized_pnl_total = Decimal("0")
     marks = _mark_prices(db, [t.stock_id for t in open_trades])
     for t in open_trades:
         stock = db.query(Stock).filter(Stock.id == t.stock_id).first()
@@ -260,11 +311,15 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
         unrealized_pnl = None
         unrealized_pnl_pct = None
         if mark is not None:
-            basis = float(t.cost_basis)
-            position_value = mark * t.quantity
+            basis = to_money(t.cost_basis)
+            position_value = quantise(mark * Decimal(t.quantity))
             # Against cash paid, same basis as realized P&L on the sell leg.
-            unrealized_pnl = round(position_value - basis, 2)
-            unrealized_pnl_pct = round((position_value - basis) / basis * 100, 2)
+            unrealized_pnl = position_value - basis
+            unrealized_pnl_pct = quantise((position_value - basis) / basis * Decimal(100))
+            # market_value accumulates the SAME quantised figure that fed
+            # unrealized_pnl, so equity == cash + market_value and
+            # capital + realized + unrealized agree to the paisa rather than
+            # to within a rounding step of each other.
             market_value += position_value
             unrealized_pnl_total += unrealized_pnl
         holdings.append(
@@ -277,24 +332,26 @@ def get_account_summary(db: Session, user_id: int) -> AccountSummary:
             )
         )
 
-    realized_pnl = round(sum(float(t.pnl) for t in closed_trades if t.pnl is not None), 2)
-    equity = round(float(account.cash) + market_value, 2)
+    # sum() over exact Decimals: no start=0.0 float seed, no re-rounding. Each
+    # t.pnl was quantised once when the trade closed.
+    realized_pnl = sum((to_money(t.pnl) for t in closed_trades if t.pnl is not None), Decimal("0"))
+    equity = to_money(account.cash) + market_value
 
     win_rate = None
     if closed_trades:
-        wins = sum(1 for t in closed_trades if t.pnl is not None and float(t.pnl) > 0)
-        win_rate = round(wins / len(closed_trades) * 100, 2)
+        wins = sum(1 for t in closed_trades if t.pnl is not None and to_money(t.pnl) > 0)
+        win_rate = quantise(Decimal(wins) / Decimal(len(closed_trades)) * Decimal(100))
 
-    peak = float(account.peak_equity)
-    current_drawdown_pct = round((equity - peak) / peak * 100, 2) if peak > 0 else 0.0
+    peak = to_money(account.peak_equity)
+    current_drawdown_pct = quantise((equity - peak) / peak * Decimal(100)) if peak > 0 else Decimal("0.00")
 
     return AccountSummary(
         account=account,
         holdings=holdings,
-        market_value=round(market_value, 2),
+        market_value=market_value,
         equity=equity,
         realized_pnl=realized_pnl,
-        unrealized_pnl=round(unrealized_pnl_total, 2),
+        unrealized_pnl=unrealized_pnl_total,
         win_rate=win_rate,
         current_drawdown_pct=current_drawdown_pct,
     )

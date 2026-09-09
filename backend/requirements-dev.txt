@@ -1,0 +1,7 @@
+# Test-only dependencies. Deliberately NOT in requirements.txt: the Dockerfile
+# installs that file into the production image, and a test runner has no
+# business shipping to the box that trades. The runtime stack in
+# requirements.txt is unchanged.
+-r requirements.txt
+
+pytest==8.3.4

@@ -33,6 +33,7 @@ import time
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type, datetime, timedelta
+from decimal import Decimal
 
 import yfinance as yf
 from sqlalchemy import func
@@ -1036,7 +1037,7 @@ def _ai_trading_done_today(as_of: date_type) -> bool:
         db.close()
 
 
-def _ai_trading_notification_text(result, equity: float | None) -> str:
+def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
     kind = "monthly rebalance" if result.rebalanced else "daily stop/target check"
     lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> ({kind}, regime: {result.regime})"]
     for b in result.bought:
