@@ -6,8 +6,6 @@ from app.core.exceptions import AppError
 from app.core.rate_limit import rate_limit_analysis
 from app.core.security import get_current_user
 from app.models.portfolio import Portfolio, PortfolioHolding
-from app.models.price_history import PriceHistory
-from app.models.stock import Stock
 from app.models.user import User
 from app.schemas.portfolio import (
     HoldingWithPnL,
@@ -18,6 +16,7 @@ from app.schemas.portfolio import (
     SavePortfolioRequest,
 )
 from app.services.portfolio import PortfolioResult, build_portfolio
+from app.services.saved_portfolio import value_portfolio
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -50,51 +49,34 @@ def analyze_portfolio(payload: PortfolioAnalyzeRequest, db: Session = Depends(ge
 
 
 def _build_saved_response(db: Session, portfolio: Portfolio) -> SavedPortfolioResponse:
-    holdings = db.query(PortfolioHolding).filter(PortfolioHolding.portfolio_id == portfolio.id).all()
+    """Translate a valuation into the response schema. The valuation itself —
+    money, totals, queries — lives in services/saved_portfolio.py.
 
-    holding_responses: list[HoldingWithPnL] = []
-    total_market_value = 0.0
-    total_pnl = 0.0
-    any_pnl = False
+    float() is written out at every field rather than left to Pydantic's
+    coercion: this is the API boundary, and it is the one place precision is
+    deliberately dropped, so it should be visible.
+    """
+    valuation = value_portfolio(db, portfolio)
 
-    for h in holdings:
-        stock = db.query(Stock).filter(Stock.id == h.stock_id).first()
-        latest_price = (
-            db.query(PriceHistory).filter(PriceHistory.stock_id == h.stock_id).order_by(PriceHistory.date.desc()).first()
+    holding_responses = [
+        HoldingWithPnL(
+            id=v.holding.id,
+            stock_id=v.holding.stock_id,
+            symbol=v.symbol,
+            sector=v.sector,
+            quantity=v.holding.quantity,
+            entry_price=float(v.holding.entry_price),
+            allocated_amount=float(v.holding.allocated_amount),
+            stop_loss=float(v.holding.stop_loss) if v.holding.stop_loss is not None else None,
+            target_price=float(v.holding.target_price) if v.holding.target_price is not None else None,
+            status=v.holding.status,
+            opened_at=v.holding.opened_at,
+            current_price=float(v.current_price) if v.current_price is not None else None,
+            unrealized_pnl=float(v.unrealized_pnl) if v.unrealized_pnl is not None else None,
+            unrealized_pnl_pct=float(v.unrealized_pnl_pct) if v.unrealized_pnl_pct is not None else None,
         )
-        current_price = float(latest_price.close) if latest_price and latest_price.close is not None else None
-
-        unrealized_pnl = None
-        unrealized_pnl_pct = None
-        # Only open positions get a P&L — portfolio_holdings has no exit_price
-        # column, so a closed position's realized P&L genuinely can't be
-        # computed without fabricating an exit price.
-        if h.status == "open" and current_price is not None:
-            entry_price = float(h.entry_price)
-            unrealized_pnl = round((current_price - entry_price) * h.quantity, 2)
-            unrealized_pnl_pct = round((current_price - entry_price) / entry_price * 100, 2)
-            total_market_value += current_price * h.quantity
-            total_pnl += unrealized_pnl
-            any_pnl = True
-
-        holding_responses.append(
-            HoldingWithPnL(
-                id=h.id,
-                stock_id=h.stock_id,
-                symbol=stock.symbol if stock else "?",
-                sector=stock.sector if stock else None,
-                quantity=h.quantity,
-                entry_price=float(h.entry_price),
-                allocated_amount=float(h.allocated_amount),
-                stop_loss=float(h.stop_loss) if h.stop_loss is not None else None,
-                target_price=float(h.target_price) if h.target_price is not None else None,
-                status=h.status,
-                opened_at=h.opened_at,
-                current_price=current_price,
-                unrealized_pnl=unrealized_pnl,
-                unrealized_pnl_pct=unrealized_pnl_pct,
-            )
-        )
+        for v in valuation.holdings
+    ]
 
     return SavedPortfolioResponse(
         id=portfolio.id,
@@ -104,8 +86,11 @@ def _build_saved_response(db: Session, portfolio: Portfolio) -> SavedPortfolioRe
         horizon=portfolio.horizon,
         created_at=portfolio.created_at,
         holdings=holding_responses,
-        total_market_value=round(total_market_value, 2),
-        total_unrealized_pnl=round(total_pnl, 2) if any_pnl else None,
+        total_market_value=float(valuation.total_market_value),
+        total_unrealized_pnl=(
+            float(valuation.total_unrealized_pnl)
+            if valuation.total_unrealized_pnl is not None else None
+        ),
     )
 
 
