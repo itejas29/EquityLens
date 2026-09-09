@@ -210,20 +210,48 @@ async def health_watchdog_loop() -> None:
             logger.exception("Health watchdog failed: %s", exc)
 
 
-_heavy_job_active = False
+# A real lock, not a flag. This was `_heavy_job_active = True/False`, which is
+# not a mutex however it is described, and it failed in two ways:
+#
+#   1. It never stopped two heavy jobs running at once. It only told the LIGHT
+#      loops to back off. daily_price_update and weekly_universe_rebuild both
+#      fire at REBUILD_HOUR:REBUILD_MINUTE, so on the weekly rebuild day they
+#      start together — and daily_signals_loop's recovery path runs
+#      _run_incremental_update too, so two full 500-stock incremental passes
+#      could overlap: double the memory, double the yfinance load, on a box
+#      with four prior memory incidents.
+#
+#   2. Whichever finished FIRST set the flag back to False while the other was
+#      still running, so the light loops resumed ticking mid-job — undoing the
+#      protection the flag existed to provide.
+#
+# asyncio.Lock fixes both: heavy jobs serialise, and "is one running" becomes
+# the lock's own state rather than a variable any finaliser can clear.
+_heavy_lock = asyncio.Lock()
+
+
+def heavy_job_running() -> bool:
+    """True while any heavy batch job holds the lock."""
+    return _heavy_lock.locked()
 
 
 @asynccontextmanager
-async def _heavy_job():
-    """Wrap every heavy batch job's executor dispatch. While active,
-    price_refresh_loop/fast_quote_loop skip their tick instead of adding their
-    own yfinance-download-plus-DataFrame memory footprint on top."""
-    global _heavy_job_active
-    _heavy_job_active = True
-    try:
-        yield
-    finally:
-        _heavy_job_active = False
+async def _heavy_job(name: str):
+    """Serialise heavy batch jobs, and tell the light loops to stand down.
+
+    While held, price_refresh_loop/fast_quote_loop skip their tick rather than
+    adding their own yfinance-download-plus-DataFrame footprint on top.
+    """
+    if _heavy_lock.locked():
+        # Logged because contention is otherwise invisible: the second job just
+        # appears to have taken longer than it did.
+        logger.info("scheduler.heavy_job.waiting name=%s", name)
+    async with _heavy_lock:
+        logger.debug("scheduler.heavy_job.start name=%s", name)
+        try:
+            yield
+        finally:
+            logger.debug("scheduler.heavy_job.end name=%s", name)
 
 
 # --- Helpers ---
@@ -337,7 +365,7 @@ async def price_refresh_loop() -> None:
         await asyncio.get_event_loop().run_in_executor(_executor, trim_every, tick, 10)
         if not _is_market_hours():
             continue
-        if _heavy_job_active:
+        if heavy_job_running():
             # A batch job is in flight — skip this tick rather than add a
             # second yfinance download + DataFrame footprint on top of it.
             # One skipped refresh is invisible; live prices already fall back
@@ -442,7 +470,7 @@ async def fast_quote_loop() -> None:
                 # the UI shows outside hours, correctly labelled "closed".
                 consecutive_failures = 0
                 continue
-            if _heavy_job_active:
+            if heavy_job_running():
                 # Same deference as price_refresh_loop — skip this tick rather
                 # than compound a batch job's memory footprint.
                 continue
@@ -632,7 +660,7 @@ async def daily_signals_loop() -> None:
             if pipeline_run is None or pipeline_run.status != "complete":
                 if recovery_attempted_for_date != today:
                     logger.warning("pipeline.signals.data_missing date=%s — attempting bounded recovery", yesterday)
-                    async with _heavy_job():
+                    async with _heavy_job("signals-recovery-incremental"):
                         await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, yesterday)
                     recovery_attempted_for_date = today
                     
@@ -651,7 +679,7 @@ async def daily_signals_loop() -> None:
                     last_skip_logged_date = today
                 continue
 
-            async with _heavy_job():
+            async with _heavy_job("daily-signals"):
                 count = await asyncio.get_event_loop().run_in_executor(_executor, _generate_signals, today)
             logger.info("pipeline.signals.published date=%s count=%d", today, count)
         except Exception as exc:
@@ -819,7 +847,7 @@ async def daily_price_update_loop() -> None:
                 continue
 
             logger.info("pipeline.incremental.starting date=%s", today)
-            async with _heavy_job():
+            async with _heavy_job("incremental-price-update"):
                 count = await asyncio.get_event_loop().run_in_executor(_executor, _run_incremental_update, today)
             logger.info("pipeline.incremental.complete date=%s stocks=%d", today, count)
         except Exception as exc:
@@ -923,7 +951,7 @@ async def weekly_universe_rebuild_loop() -> None:
                 continue
 
             logger.info("pipeline.full_rebuild.starting date=%s", today)
-            async with _heavy_job():
+            async with _heavy_job("weekly-universe-rebuild"):
                 count = await asyncio.get_event_loop().run_in_executor(_executor, _run_full_rebuild, today)
             logger.info("pipeline.full_rebuild.complete date=%s stocks=%d", today, count)
         except Exception as exc:
@@ -1145,11 +1173,11 @@ async def ai_trading_loop() -> None:
             today = now.date()
             if await asyncio.get_event_loop().run_in_executor(_executor, _ai_trading_done_today, today):
                 continue
-            if _heavy_job_active:
+            if heavy_job_running():
                 continue
 
             logger.info("ai_trading.starting date=%s", today)
-            async with _heavy_job():
+            async with _heavy_job("ai-trading"):
                 bought, sold, rebalanced = await asyncio.get_event_loop().run_in_executor(
                     _executor, _run_ai_trading_cycle, today)
             logger.info("ai_trading.complete date=%s bought=%d sold=%d rebalance=%s",
