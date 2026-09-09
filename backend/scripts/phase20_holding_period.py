@@ -94,16 +94,26 @@ def _pit_top500(db, fold_start: date) -> list[int]:
     return [sid for _, sid in ranked[:ARM_SIZE]]
 
 
-def go(db, horizon, freq, stock_ids, s, e):
+def go(db, horizon, freq, stock_ids, s, e, cache):
     params = replace(V1, horizon_days=horizon, rebalance_frequency=freq)
     return run_backtest(db, BacktestConfig(
         start_date=s, end_date=e, initial_capital=CAPITAL, risk_appetite="moderate",
         horizon_days=horizon, rebalance_frequency=freq,
         transaction_cost_pct=DEFAULT_TRANSACTION_COST_PCT, slippage_pct=DEFAULT_SLIPPAGE_PCT,
-        # One fresh cache per run: scoring is cached on as_of alone, and these
-        # arms differ in when they score. Sharing would leak one arm's dates
-        # into another (the defect that voided Phase 18's first run).
-        params=params, indicator_cache={}, universe_stock_ids=stock_ids))
+        # One cache SHARED across every arm in a fold, which is safe here and was
+        # not in Phase 18. The cache is keyed on as_of alone, so sharing is only
+        # wrong when arms would compute different scores for the same date.
+        # Phase 18's arms differed in UNIVERSE, which is a scoring input, so they
+        # did. These arms are identical in universe and in every scoring
+        # parameter; horizon_days and rebalance_frequency affect exits and which
+        # dates get scored, both downstream of scoring itself.
+        #
+        # It is also what makes this tractable. Per fold the daily arms score
+        # ~125 dates, weekly ~26, monthly ~6; unshared that is ~340 scoring
+        # passes, against Phase 19's 42. Since the daily dates are a superset of
+        # the rest, sharing collapses it to ~125 — the difference between roughly
+        # 28 hours and 10.
+        params=params, indicator_cache=cache, universe_stock_ids=stock_ids))
 
 
 def classify(r):
@@ -134,9 +144,12 @@ def main() -> None:
             break
         fold += 1
         universe = _pit_top500(db, te)
+        # Fresh per fold (the universe is rebuilt point-in-time), shared across
+        # arms within it — see the note in go().
+        fold_cache: dict = {}
         entry = {"fold": fold, "test": [str(te), str(tt)], "arms": {}}
         for label, horizon, freq in ARMS:
-            r = go(db, horizon, freq, universe, te, tt)
+            r = go(db, horizon, freq, universe, te, tt, fold_cache)
             entry["arms"][label] = r.metrics
             if "benchmark" not in entry:
                 entry["benchmark"] = r.benchmark_metrics
