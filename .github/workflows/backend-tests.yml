@@ -1,0 +1,87 @@
+# The test suite went from 84 lines to ~2,600 during the September 2026 audit,
+# and none of it ran anywhere except on one laptop. A suite nothing executes is
+# documentation, not a check — so this runs it on every push and pull request.
+#
+# Deliberately NOT a deployment pipeline. Deploys to the EC2 box stay manual
+# and human-initiated; this only tells you whether the code is safe to deploy.
+name: backend tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend-tests.yml']
+  pull_request:
+    paths: ['backend/**', '.github/workflows/backend-tests.yml']
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      # A real Postgres, so the tests gated on AUDIT_POSTGRES_URL actually run.
+      # The row-lock test cannot run on SQLite — SQLite has no row locks — and
+      # it guards a defect that lost a 400,240.00 debit between two concurrent
+      # buys, so it is worth a container.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the suite
+        env:
+          # conftest sets defaults for these, but setting them here too keeps
+          # the failure mode honest: if the app ever starts reading a real
+          # DATABASE_URL during tests, it hits the CI container and not
+          # something else.
+          DATABASE_URL: postgresql+psycopg2://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/15
+          JWT_SECRET_KEY: ci-only-secret-not-used-anywhere-else-0123456789
+          AUDIT_POSTGRES_URL: postgresql+psycopg2://ci:ci@localhost:5432/ci
+        run: python -m pytest -q
+
+      - name: Check the Alembic chain applies from empty
+        env:
+          DATABASE_URL: postgresql+psycopg2://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/15
+          JWT_SECRET_KEY: ci-only-secret-not-used-anywhere-else-0123456789
+        # The container runs `alembic upgrade head` on start, so a migration
+        # that does not apply is a deploy that does not boot. Dropping the
+        # schema first because the test run above left tables behind.
+        run: |
+          python - <<'PY'
+          from sqlalchemy import create_engine, text
+          import os
+          e = create_engine(os.environ["DATABASE_URL"])
+          with e.begin() as c:
+              c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+          PY
+          alembic upgrade head
+
+      - name: Build the production image
+        # Catches a Dockerfile that no longer builds before the box does.
+        run: docker build -t equitylens-backend:ci .

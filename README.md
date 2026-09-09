@@ -1,6 +1,6 @@
 # EquityLens
 
-A research and paper-trading platform for NSE (Indian stock exchange) equities: scores ~40 stocks across four dimensions (technical, fundamental, valuation, risk), builds risk-sized portfolios, backtests the strategy point-in-time, trains a small secondary ML signal, and lets you paper-trade against real prices.
+A research and paper-trading platform for NSE (Indian stock exchange) equities: scores a ~500-stock NSE universe across four dimensions (technical, fundamental, valuation, risk), builds risk-sized portfolios, backtests the strategy point-in-time, trains a small secondary ML signal, and lets you paper-trade against real prices.
 
 **This is a research tool, not investment advice.** No real-money execution. Past performance does not indicate future returns.
 
@@ -11,7 +11,7 @@ A research and paper-trading platform for NSE (Indian stock exchange) equities: 
 - Scores every stock 0–100 on four sub-scores (technical / fundamental / valuation / risk), each with documented normalization and missing-data handling, combined into a weighted composite with a signal label
 - Computes ATR-based entry zone / stop-loss / target for each stock
 - Builds a capital-sized, sector-capped, risk-appetite-aware portfolio from the scored universe
-- Backtests that strategy with genuine point-in-time correctness (no look-ahead), transaction costs, and slippage, compared against a NIFTY 50 buy-and-hold benchmark
+- Backtests that strategy point-in-time on the data (every rebalance scores only rows dated on or before that day), with transaction costs and slippage, against a NIFTY 50 buy-and-hold benchmark. Universe **membership** is not point-in-time by default — see Limitations
 - Trains a small secondary ML model (LogisticRegression / RandomForest) as an *additional* probability signal — never blended into the rule-based score
 - Supports paper trading (virtual buy/sell against real prices) and a watchlist
 - Redis caching + per-user rate limiting on the compute-heavy endpoints
@@ -264,11 +264,27 @@ Full writeup: [`docs/ml_results.md`](docs/ml_results.md). Headline, from a real 
 - On the test period, the ML probability ranking beat the rule-based technical+risk score at identifying near-term outperformers (63.3% vs 34.7% precision at the top 30%, vs. a 50.9% base rate) — one 165-row test window, not a general claim.
 - `ml_probability` is an **additional** field on recommendations, never folded into `overall_score`.
 
+## Tests
+
+`pytest` runs 127 tests against SQLite in memory plus a real Postgres for the
+row-lock and migration checks. Run them with:
+
+```bash
+cd backend && pip install -r requirements-dev.txt && pytest
+```
+
+`requirements-dev.txt` is separate from `requirements.txt` on purpose — the
+Dockerfile installs the latter into the production image, and a test runner has
+no business shipping to the box that trades. CI (`.github/workflows/backend-tests.yml`)
+runs the suite, applies the full Alembic chain to an empty database, and builds
+the production image on every push and pull request. Deploys stay manual.
+
 ## Limitations
 
 - **yfinance data quality**: fundamentals (`roe`, `roce`, `debt_to_equity`, etc.) are frequently missing for Indian tickers — `roce` has *no* yfinance equivalent and is always NULL. Occasional single-day price gaps occur (a stock's most recent close can be NULL); every downstream computation (indicators, scores, levels) correctly propagates that as NULL rather than fabricating a value.
 - **Fundamentals are a single snapshot**, not a time series — this is why backtesting and the ML feature set both have documented workarounds/exclusions rather than pretending to have historical fundamentals.
-- **Corporate actions**: symbols can change (e.g. demergers) — the seed universe was corrected for three such cases (Tata Motors → TMCV, Vedanta → VEDL, LTIM unresolved on Yahoo) found via live verification, not assumed.
+- **Corporate actions**: symbols can change (e.g. demergers) — the seed universe was corrected for three such cases (Tata Motors → TMCV, Vedanta → VEDL, LTIM unresolved on Yahoo) found via live verification, not assumed. Separately, unadjusted splits leave a step in the stored price series: nine were found in production on 2026-09-10, and stocks carrying one inside the momentum lookback are excluded from ranking rather than scored — see [docs/audit/price-series-discontinuities.md](docs/audit/price-series-discontinuities.md).
+- **Survivorship bias in the default backtest universe.** Point-in-time applies to the data, not to membership: the universe is `is_active == True`, i.e. the stocks in it *today*, projected backwards. Measured 2026-09-10: 67 inactive stocks holding 112,385 bars are excluded from every backtest, and the active universe itself grows from 315 names with 2016 data to 500 in 2026. This **inflates** backtested returns. `BacktestConfig.include_inactive` turns it off; the default is left biased so published results stay reproducible. The gap has not yet been quantified. Full write-up in [docs/audit/survivorship-bias.md](docs/audit/survivorship-bias.md).
 - **Not implemented**: real-money execution (by design), shorting in paper trading (long-only), short-selling generally, options/derivatives, intraday data (daily bars only), realized P&L for closed portfolio holdings (schema has no `exit_price` column — only paper trading tracks that).
 - **Backtest and paper trading transaction costs** are a flat assumption (0.12% round-trip), not a real broker's actual fee schedule.
 - Nothing in this repository is investment advice. All scores, backtests, and ML outputs are descriptive analysis of historical data, not predictions or recommendations to trade.
