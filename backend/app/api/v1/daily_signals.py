@@ -171,6 +171,19 @@ def get_momentum_leaders_endpoint(db: Session = Depends(get_db)) -> MomentumLead
     )
 
 
+@router.get("/track-record")
+def get_track_record(db: Session = Depends(get_db)):
+    """Measured outcomes of every signal published so far, against NIFTY over
+    the same window for each one.
+
+    Declared above /{symbol} on purpose — that route is a catch-all and would
+    otherwise swallow "track-record" as a ticker.
+    """
+    from app.services.forward_testing import compute_track_record
+
+    return compute_track_record(db)
+
+
 @router.get("/{symbol}")
 def get_daily_signal_for_symbol(
     symbol: str, 

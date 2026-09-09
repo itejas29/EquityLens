@@ -16,6 +16,7 @@ const LINKS = [
   { to: "/discover", label: "Discover" },
   { to: "/recommendations", label: "Recommendations" },
   { to: "/today", label: "Today's Picks" },
+  { to: "/track-record", label: "Track Record" },
   { to: "/stocks", label: "Stocks" },
   { to: "/sectors", label: "Sectors" },
   { to: "/paper", label: "Paper Trading" },

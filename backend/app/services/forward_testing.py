@@ -2,7 +2,7 @@ import logging
 from datetime import date as date_type
 from datetime import timedelta
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.models.daily_signal import DailySignal, SignalOutcome
@@ -218,3 +218,78 @@ def evaluate_signal_outcomes(db: Session, target_date: date_type) -> int:
         upserted_count += 1
         
     return upserted_count
+
+
+# Minimum outcomes at a horizon before its numbers are worth reading at all.
+# Not a significance test — just a floor below which the average is one or two
+# stocks wearing a percentage sign.
+MIN_SAMPLE_FOR_HORIZON = 30
+
+HORIZONS = (1, 5, 10, 20)
+
+
+def compute_track_record(db: Session) -> dict:
+    """What actually happened to every signal this app has published.
+
+    This is the only evidence about the strategy that no methodology argument
+    can take away. A backtest can be attacked on survivorship, on universe
+    construction, on cost assumptions — Phase 18 and 19 attacked this project's
+    own backtest on exactly those grounds and it did not survive. These numbers
+    are forward, out-of-sample, and measured against NIFTY over the identical
+    window for each signal, so they are immune to all of it.
+
+    Reported whether or not it flatters the strategy. `sufficient_sample` and
+    the date range are returned alongside every figure precisely so a bad month
+    is not mistaken for a verdict, and a good one is not mistaken for an edge.
+    """
+    total_signals = db.query(DailySignal).count()
+    outcomes = db.query(SignalOutcome).all()
+    dates = db.query(func.min(DailySignal.date), func.max(DailySignal.date)).one()
+
+    horizons = []
+    for h in HORIZONS:
+        ret_attr, nifty_attr = f"return_{h}d", f"nifty_return_{h}d"
+        pairs = [
+            (float(getattr(o, ret_attr)), float(getattr(o, nifty_attr)) if getattr(o, nifty_attr) is not None else None)
+            for o in outcomes
+            if getattr(o, ret_attr) is not None
+        ]
+        if not pairs:
+            horizons.append({"horizon_days": h, "sample": 0, "sufficient_sample": False})
+            continue
+
+        rets = [r for r, _ in pairs]
+        matched = [(r, n) for r, n in pairs if n is not None]
+        avg = sum(rets) / len(rets)
+        avg_nifty = (sum(n for _, n in matched) / len(matched)) if matched else None
+        horizons.append({
+            "horizon_days": h,
+            "sample": len(rets),
+            "sufficient_sample": len(rets) >= MIN_SAMPLE_FOR_HORIZON,
+            "avg_return_pct": round(avg, 2),
+            "avg_nifty_return_pct": round(avg_nifty, 2) if avg_nifty is not None else None,
+            # The number that matters: excess over simply holding the index for
+            # the same days. A positive average return in a rising market is not
+            # evidence of anything on its own.
+            "edge_vs_nifty_pct": round(avg - avg_nifty, 2) if avg_nifty is not None else None,
+            "win_rate_pct": round(100 * sum(1 for r in rets if r > 0) / len(rets), 1),
+            "beat_nifty_rate_pct": round(100 * sum(1 for r, n in matched if r > n) / len(matched), 1) if matched else None,
+        })
+
+    evaluated = len(outcomes)
+    target_hit = sum(1 for o in outcomes if o.target_hit)
+    stop_hit = sum(1 for o in outcomes if o.stop_hit)
+
+    return {
+        "signals_published": total_signals,
+        "signals_evaluated": evaluated,
+        "first_signal_date": dates[0].isoformat() if dates[0] else None,
+        "last_signal_date": dates[1].isoformat() if dates[1] else None,
+        "target_hit": target_hit,
+        "stop_hit": stop_hit,
+        # Reported as counts, not a ratio: with single-digit targets a ratio
+        # reads as precision the sample cannot support.
+        "resolved": target_hit + stop_hit,
+        "horizons": horizons,
+        "min_sample_for_horizon": MIN_SAMPLE_FOR_HORIZON,
+    }
