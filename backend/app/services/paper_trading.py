@@ -82,8 +82,45 @@ def _half_cost(fill_price: Decimal, quantity: int) -> Decimal:
     return fill_price * Decimal(quantity) * (TRANSACTION_COST / 2)
 
 
-def get_or_create_account(db: Session, user_id: int) -> PaperAccount:
-    account = db.query(PaperAccount).filter(PaperAccount.user_id == user_id).first()
+def get_or_create_account(db: Session, user_id: int, for_update: bool = False) -> PaperAccount:
+    """Fetch (or create) the account. Pass for_update=True before mutating it.
+
+    CONCURRENCY. Postgres defaults to READ COMMITTED, under which
+
+        cash = SELECT cash ...            # both transactions read 1,000,000
+        if cost > cash: reject            # both pass
+        UPDATE cash = cash - cost         # second write overwrites the first
+
+    loses a debit outright. Reproduced on Postgres 16 with two threads buying
+    4,000 shares at 100.00 into a 1,000,000 account: both succeeded, the trades
+    recorded 800,480.00 of cost basis, and cash was left at 599,760.00 instead
+    of 199,520.00 — 400,240.00 unaccounted for. The same interleaving also put
+    TWO open positions in one stock, defeating the no-pyramiding rule this
+    module documents.
+
+    SELECT ... FOR UPDATE on the account row is the fix and the right
+    granularity: every mutation of this account — cash, and the open-position
+    check that reads it — is serialised behind one lock, while different
+    accounts stay independent. It is taken FIRST in buy() and sell(), before
+    the position query, so the check and the write are inside the same lock.
+
+    SQLite has no row locks (it locks the database on write), and SQLAlchemy
+    omits the clause there. The tests still exercise the ordering; the lock
+    itself is verified separately by asserting the emitted SQL.
+    """
+    query = db.query(PaperAccount).filter(PaperAccount.user_id == user_id)
+    if for_update:
+        # populate_existing() is not optional here, and leaving it out is a
+        # lock that does nothing. with_for_update() emits SELECT ... FOR UPDATE
+        # and really does take the lock — but if this Session has already
+        # loaded the account (ai_trading does exactly that, before calling
+        # buy()/sell()), SQLAlchemy returns the identity-mapped instance
+        # WITHOUT refreshing its attributes. The lock is then held around a
+        # `cash` value read before the lock existed, and the lost update
+        # survives untouched. Measured: with the lock but without this line,
+        # two concurrent buys still lost a 400,240.00 debit.
+        query = query.with_for_update().populate_existing()
+    account = query.first()
     if account is not None:
         return account
 
@@ -170,7 +207,10 @@ def buy(db: Session, user_id: int, symbol: str, quantity: int) -> PaperTrade:
     if stock is None:
         raise PaperTradingError(f"Stock '{symbol}' not found")
 
-    account = get_or_create_account(db, user_id)
+    # Locked before the open-position check, not after: the check and the cash
+    # debit have to be inside the same lock or two concurrent buys can both
+    # pass it. See get_or_create_account.
+    account = get_or_create_account(db, user_id, for_update=True)
 
     existing_open = (
         db.query(PaperTrade)
@@ -229,7 +269,7 @@ def sell(db: Session, user_id: int, symbol: str) -> PaperTrade:
     if stock is None:
         raise PaperTradingError(f"Stock '{symbol}' not found")
 
-    account = get_or_create_account(db, user_id)
+    account = get_or_create_account(db, user_id, for_update=True)
 
     trade = (
         db.query(PaperTrade)

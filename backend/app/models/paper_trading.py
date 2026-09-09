@@ -11,7 +11,7 @@ money-is-Decimal section of services/paper_trading.py.
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Date, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -33,6 +33,29 @@ class PaperAccount(Base):
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
+    # At most ONE open position per account per stock, enforced by the
+    # database rather than only by the check in paper_trading.buy().
+    #
+    # A partial index, because the rule applies to open rows only: an account
+    # may close a position and re-enter the same stock any number of times,
+    # and every one of those closed rows would collide under a plain unique
+    # constraint.
+    #
+    # Belt and braces with the SELECT ... FOR UPDATE in get_or_create_account,
+    # deliberately. The lock is what makes concurrent buys correct; this index
+    # is what makes a future code path that forgets the lock fail loudly
+    # instead of quietly pyramiding. Measured before the lock existed: two
+    # concurrent buys produced two open positions in one stock.
+    __table_args__ = (
+        Index(
+            "uq_paper_trade_open_position",
+            "account_id",
+            "stock_id",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+            sqlite_where=text("status = 'open'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), nullable=False)

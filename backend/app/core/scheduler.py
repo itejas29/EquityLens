@@ -1071,16 +1071,35 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
 
     db = SessionLocal()
     try:
+        # Three transactions, on purpose.
+        #
+        # 1. Reserve the date. run_date is UNIQUE, and committing this row
+        #    before trading means a crash mid-cycle still leaves a record that
+        #    today was attempted — which _ai_trading_done_today reads to avoid
+        #    running the cycle twice in one day.
         run = AITradingRun(run_date=as_of, status="running")
         db.add(run)
-        db.flush()
+        db.commit()
+
+        # 2. The trading itself, all or nothing. This used to share a
+        #    transaction with the run row and had no rollback: a cycle that
+        #    sold two positions and then raised on the third COMMITTED those
+        #    two sells and marked the run failed. The account was then left
+        #    half-rebalanced, and — since a failed run no longer consumes the
+        #    month's rebalance — the next day's cycle would rebalance again
+        #    from that partial state. A cycle either happened or it did not.
         try:
             result = run_ai_trading_cycle(db, as_of)
+            db.commit()
         except Exception:
+            db.rollback()
             run.status = "failed"
+            run.finished_at = datetime.now(IST)
             db.commit()
             raise
 
+        # 3. Record the outcome. Separate from the trades so a failure to
+        #    write the summary cannot roll back money that has already moved.
         run.status = "complete"
         run.bought_count = len(result.bought)
         run.sold_count = len(result.sold)
