@@ -40,7 +40,7 @@ history. The expensive part is the yfinance download, not the numpy math.
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import date as date_type, timedelta
+from datetime import date as date_type, datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -48,6 +48,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.ingestion_status import IngestionStatus
+from app.core.market_hours import IST
 from app.core.memory_hygiene import trim_every
 from app.core.universe_config import DOWNLOAD_BATCH_SIZE, HISTORY_PERIOD
 from app.models.indicator import Indicator
@@ -71,6 +72,27 @@ RESTATEMENT_OVERLAP_DAYS = 10
 # and far below the smallest corporate action worth acting on (a 1.05:1 bonus
 # moves the price ~4.8%).
 RESTATEMENT_TOLERANCE_PCT = 1.0
+
+# yfinance returns an IN-PROGRESS bar for a session that is still open: its
+# close is the last trade rather than the settled close, and its volume is
+# whatever has traded so far. Writing that as a daily close corrupts the series
+# silently, and then FREEZES it — incremental_price_update treats a stock whose
+# latest stored date is already today as "already current" (step 3 of its
+# docstring) and never fetches that date again, so the partial bar is permanent.
+#
+# Measured on production, 2026-08-25: a catch-up run executed at 10:18 IST, 63
+# minutes into the session. 487 of 500 stored closes for that date were wrong,
+# 434 carried under 90% of the session's true volume, 567 indicator rows were
+# computed from them, and two consecutive published shortlists (16 signals)
+# were priced off that bar. The 20:00 IST run the same evening finished in 1.4
+# seconds because every stock looked current. See
+# docs/audit/unsettled-session-bars.md.
+#
+# 16:00 IST rather than the 15:40 in core.market_hours: that window is tuned
+# for live price polling, where a late tick is harmless. A daily bar has to be
+# final, so this allows 30 minutes past the 15:30 close for the provider to
+# settle it. The nightly ingest runs at 20:00 IST and is unaffected.
+DAILY_BAR_SETTLED_IST = (16, 0)
 
 
 @dataclass
@@ -243,6 +265,28 @@ def _normalise_df(df: pd.DataFrame) -> pd.DataFrame:
     return normalised
 
 
+def _drop_unsettled_session(
+    df: pd.DataFrame, now_ist: datetime | None = None
+) -> tuple[pd.DataFrame, int]:
+    """Drop bars belonging to a session that has not settled yet.
+
+    Returns (kept, dropped). Dates beyond today are dropped as well — a bar
+    from the future is not something to reason about, whatever produced it.
+
+    IST throughout, deliberately: the server runs UTC, where date.today() is
+    still yesterday until 05:30 IST. Deciding "is today's bar final?" against
+    the wrong calendar day is exactly the mistake this guards.
+    """
+    if df.empty:
+        return df, 0
+    now = now_ist or datetime.now(IST)
+    settled = (now.hour, now.minute) >= DAILY_BAR_SETTLED_IST
+    cutoff = now.date() if settled else now.date() - timedelta(days=1)
+    keep = df["date"] <= cutoff
+    dropped = int((~keep).sum())
+    return (df if dropped == 0 else df[keep]), dropped
+
+
 def incremental_price_update(db: Session, today: date_type | None = None) -> IncrementalResult:
     """Fetch only missing bars for each active stock since its latest stored date.
 
@@ -362,7 +406,12 @@ def _process_full_pulls(
 
             try:
                 stock = symbol_to_stock[sym]
-                normalised = _normalise_df(df)
+                normalised, unsettled = _drop_unsettled_session(_normalise_df(df))
+                if unsettled:
+                    logger.info(
+                        "pipeline.incremental.unsettled_dropped symbol=%s bars=%d path=full",
+                        sym, unsettled,
+                    )
                 bars = upsert_price_history(db, stock.id, normalised)
 
                 # Bounded to what compute_indicators actually reads (longest
@@ -489,7 +538,18 @@ def _process_incremental_pulls(
             try:
                 stock = symbol_to_stock[sym]
                 start_date = symbol_to_start[sym]
-                normalised = _normalise_df(df)
+                normalised, unsettled = _drop_unsettled_session(_normalise_df(df))
+                if unsettled:
+                    # Dropped before the restatement check on purpose: an
+                    # in-progress bar disagrees with nothing on disk (we have
+                    # no row for it yet), but leaving it in the frame would
+                    # write it, and a partial bar differs from its own settled
+                    # value by more than RESTATEMENT_TOLERANCE_PCT often enough
+                    # to trigger a spurious full re-pull the following day.
+                    logger.info(
+                        "pipeline.incremental.unsettled_dropped symbol=%s bars=%d path=incremental",
+                        sym, unsettled,
+                    )
 
                 # Compare the overlap against what is on disk BEFORE writing
                 # anything. A mismatch means the provider restated this
@@ -532,8 +592,10 @@ def _process_incremental_pulls(
                     stale_in_batch += 1
                     result.results.append(SymbolResult(
                         sym, IngestionStatus.STALE_DATA, bars_added=bars, latest_date=latest,
-                        error="fetch returned no bar at or after the requested start date "
-                              "— source has not published this session yet",
+                        error=("today's bar was withheld — the session has not settled yet"
+                               if unsettled else
+                               "fetch returned no bar at or after the requested start date "
+                               "— source has not published this session yet"),
                     ))
                     logger.warning(
                         "pipeline.incremental.stale symbol=%s requested_from=%s got_latest=%s",

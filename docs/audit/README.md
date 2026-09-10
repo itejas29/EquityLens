@@ -156,6 +156,19 @@ unmet. **A defect behind a feature flag is an armed defect, not a fixed one.**
 
 ---
 
+### 16. In-progress session bars stored as daily closes — HIGH, fixed
+
+A catch-up ingest run executed 63 minutes into the 2026-08-25 session wrote
+yfinance's **in-progress** bar as that day's close for the whole universe.
+**487 of 500 stored closes for the date are wrong**; 434 carry under 90% of the
+session's true volume. The "already current" check then froze them — the real
+20:00 IST run that evening finished in 1.4 seconds and fetched nothing.
+
+567 indicator rows and two consecutive published shortlists (16 signals, both
+dated off 2026-08-25) rest on those bars. The signals stand as published;
+rewriting a dated call is the one thing the forward track record cannot
+survive. [unsettled-session-bars.md](unsettled-session-bars.md)
+
 ## Checked and found sound
 
 - **`_capture_ratios`** — Phase 19's downside-capture conclusion (154–196%)

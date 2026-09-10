@@ -33,8 +33,20 @@ re-returns bars already on disk, compares them, and re-pulls the full history
 for any symbol whose past has moved. Costs no extra requests. See
 `_detect_restatement` in `services/incremental.py`.
 
-TDPOWERSYS itself still needs a one-off re-pull — the fix prevents recurrence,
-it does not repair history already stored.
+TDPOWERSYS itself still needed a one-off re-pull — the fix prevents
+recurrence, it does not repair history already stored. Done via
+`scripts/repair_price_history.py --symbols TDPOWERSYS`, at `period="max"`
+rather than `HISTORY_PERIOD`: a 10y pull starts 2016-09-12 while our stored
+series starts 2016-08-16, which would have left 18 bars on the old basis and
+moved the seam instead of removing it.
+
+**Re-examining these nine turned up a separate, larger defect.** CGCL and PARAS
+are listed below as defect B, and they are — but each *also* disagreed with the
+provider on exactly one further date, 2026-08-25, as did TDPOWERSYS. One shared
+date across three unrelated companies is one bad ingest, not three corporate
+actions: 487 of 500 stored closes for that date were in-progress session
+snapshots written as closes. See
+[unsettled-session-bars.md](unsettled-session-bars.md).
 
 ## B. Yahoo adjusts only from the start of the split's calendar year — their bug
 
