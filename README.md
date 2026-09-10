@@ -299,6 +299,14 @@ Full writeup: [`docs/ml_results.md`](docs/ml_results.md). Headline, from a real 
 
 - 1,100 usable (stock, date) rows survive after dropping missing features (mostly the ROE/debt-equity gaps below)
 - Time-based 70/15/15 split, no shuffling
+
+> **These figures predate a split fix on 2026-09-10 and are optimistic.** The
+> split was positional on a stock-by-date panel, so it cut mid-date and put the
+> same trading day on both sides of a boundary; and it did not purge, so the
+> last 20 trading days of each split were labelled by prices inside the next
+> one — the target is a forward 20-day return. The split now cuts on date
+> boundaries with a 20-day purge either side. The numbers below have not been
+> regenerated, and should be expected to fall when they are.
 - **LogisticRegression beat RandomForest** on every held-out test metric (ROC-AUC 0.734 vs 0.566) — so `app/ml/predict.py` serves the LR model, not RF, despite RF being the more complex "expected" choice. Reported and used as measured, not tuned until RF won.
 - On the test period, the ML probability ranking beat the rule-based technical+risk score at identifying near-term outperformers (63.3% vs 34.7% precision at the top 30%, vs. a 50.9% base rate) — one 165-row test window, not a general claim.
 - `ml_probability` is an **additional** field on recommendations, never folded into `overall_score`.

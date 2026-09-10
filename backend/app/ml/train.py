@@ -11,6 +11,7 @@ project has been careful to avoid everywhere else.
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,11 +25,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sqlalchemy.orm import Session
 
-from app.ml.features import FEATURE_COLUMNS, build_feature_dataset
+from app.ml.features import FEATURE_COLUMNS, TARGET_HORIZON_DAYS, build_feature_dataset
 from app.models.stock import Stock
 from app.services.backtest import _load_all_price_frames
 from app.services.backtest_scoring import compute_point_in_time_universe
 from app.services.market_data import fetch_price_history
+
+logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 RF_N_ESTIMATORS = 300
@@ -41,17 +44,64 @@ RF_N_ESTIMATORS = 300
 RF_DEPTH_GRID = (5, 10, 16, 24)
 RF_MIN_SAMPLES_LEAF = 50  # smooths noisy leaves on a low signal-to-noise target
 
+# Trading days dropped either side of each split boundary. Equal to the target
+# horizon because that is exactly how far a row's LABEL reaches forward: a row
+# dated D is labelled by the price at D+TARGET_HORIZON_DAYS, so without this gap
+# the tail of each split is answered by the period it is scored against.
+PURGE_DAYS = TARGET_HORIZON_DAYS
+
 # Cap on how many test dates the rule-based comparison rebuilds. Diagnostic
 # only — it does not affect the trained model or its reported metrics.
 COMPARISON_MAX_DATES = 20
 
 
 def _split(df):
-    df = df.sort_values("date").reset_index(drop=True)
-    n = len(df)
-    train_end = int(n * 0.70)
-    val_end = int(n * 0.85)
-    return df.iloc[:train_end], df.iloc[train_end:val_end], df.iloc[val_end:]
+    """Time-based 70/15/15, split on DATE boundaries and purged.
+
+    Two defects in the previous positional version, both forms of the exact
+    look-ahead this module's docstring claims to avoid.
+
+    1. IT CUT MID-DATE. `df.iloc[:int(n * 0.70)]` on a stock-by-date panel with
+       ~500 rows per trading day almost always lands inside a day, putting the
+       SAME trading date on both sides of the boundary — same date, same
+       benchmark forward return, in train and in validation at once.
+
+    2. IT DID NOT PURGE. The target is the forward TARGET_HORIZON_DAYS return,
+       so a row dated D is labelled by prices at D+20. Without a gap, the last
+       20 trading days of train are labelled by prices inside the validation
+       window, and the last 20 of validation by prices inside test. The model
+       trains on rows whose ANSWERS come from the period it is later scored on.
+
+    Both are fixed by cutting on unique dates and dropping PURGE_DAYS of dates
+    either side of each boundary. Purging costs ~40 trading days of a ~1,900-day
+    panel; the alternative is a metric that flatters itself.
+    """
+    dates = np.sort(df["date"].unique())
+    n_dates = len(dates)
+    if n_dates < 3 * PURGE_DAYS:
+        # Too short to purge meaningfully — fall back to an unpurged date split
+        # and say so, rather than silently returning empty frames.
+        logger.warning(
+            "ml.split.no_purge dates=%d — panel too short to purge %d days either side",
+            n_dates, PURGE_DAYS,
+        )
+        train_cut, val_cut = dates[int(n_dates * 0.70)], dates[int(n_dates * 0.85)]
+        return (df[df["date"] < train_cut],
+                df[(df["date"] >= train_cut) & (df["date"] < val_cut)],
+                df[df["date"] >= val_cut])
+
+    train_cut_idx = int(n_dates * 0.70)
+    val_cut_idx = int(n_dates * 0.85)
+
+    train_end = dates[train_cut_idx - PURGE_DAYS]
+    val_start, val_end = dates[train_cut_idx], dates[val_cut_idx - PURGE_DAYS]
+    test_start = dates[val_cut_idx]
+
+    return (
+        df[df["date"] < train_end],
+        df[(df["date"] >= val_start) & (df["date"] < val_end)],
+        df[df["date"] >= test_start],
+    )
 
 
 def _metrics(y_true, y_pred, y_proba) -> dict:
