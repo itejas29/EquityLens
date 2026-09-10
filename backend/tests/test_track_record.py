@@ -165,3 +165,61 @@ def test_an_empty_database_reports_nothing_rather_than_zeros(db_session):
     assert result["first_signal_date"] is None
     for h in result["horizons"]:
         assert h["sample"] == 0
+
+
+# ------------------------------------- returns from a price you can actually pay --
+
+def test_returns_are_also_reported_from_the_top_of_the_entry_zone(db_session, stock):
+    """Stored returns are measured from reference_close. Nobody can buy there.
+
+    The published call is "buy between entry_low and entry_high", so entry_high
+    is the worst fill inside the app's own zone. Measured across all 168 live
+    signals, entry_high sits a mean of 1.276% above reference_close — so every
+    figure on the page is that much better than following the call would give.
+    """
+    from app.services.forward_testing import _from_entry
+
+    s = _signal(db_session, date(2026, 9, 1), stock)
+    # reference_close 100.00, entry_high 101.00 -> a 1% worse basis.
+    _outcome(db_session, s, r1=10.0, n1=2.0)
+
+    h = _h1(compute_track_record(db_session))
+
+    assert h["avg_return_pct"] == pytest.approx(10.0, abs=0.01)
+    # 100 * 1.10 = 110 at eval; from 101.00 that is 8.91%, not 10%.
+    assert h["avg_return_from_entry_pct"] == pytest.approx(8.91, abs=0.01)
+    assert h["edge_from_entry_pct"] == pytest.approx(6.91, abs=0.01)
+    assert h["edge_vs_nifty_pct"] == pytest.approx(8.0, abs=0.01)
+
+
+def test_the_rebasing_is_exact_not_an_approximation():
+    """Recovers the evaluation price from the stored return, then re-divides.
+    Subtracting the entry gap from the return would be wrong by the cross term."""
+    from app.services.forward_testing import _from_entry
+
+    ref, hi, r = 250.0, 253.5, 12.0
+    eval_price = ref * (1 + r / 100)
+    assert _from_entry(r, ref, hi) == pytest.approx((eval_price - hi) / hi * 100, abs=1e-9)
+
+    naive = r - (hi - ref) / ref * 100
+    assert _from_entry(r, ref, hi) != pytest.approx(naive, abs=1e-6), (
+        "the naive subtraction happens to match — pick inputs where it does not"
+    )
+
+
+def test_rebasing_makes_a_loss_worse_and_a_gain_smaller(db_session, stock):
+    """Direction check: a worse entry price can only reduce the return."""
+    from app.services.forward_testing import _from_entry
+
+    assert _from_entry(10.0, 100.0, 101.0) < 10.0
+    assert _from_entry(-5.0, 100.0, 101.0) < -5.0
+    # An entry zone that never rose above the reference close changes nothing.
+    assert _from_entry(10.0, 100.0, 100.0) == pytest.approx(10.0, abs=1e-9)
+
+
+def test_a_zero_or_negative_basis_does_not_divide(db_session):
+    """Bad data must not raise on the app's most-viewed page."""
+    from app.services.forward_testing import _from_entry
+
+    assert _from_entry(5.0, 0.0, 100.0) == 5.0
+    assert _from_entry(5.0, 100.0, 0.0) == 5.0

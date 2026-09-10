@@ -232,6 +232,32 @@ MIN_SAMPLE_FOR_HORIZON = 30
 HORIZONS = (1, 5, 10, 20)
 
 
+def _from_entry(return_from_reference_pct: float, reference_close: float, entry_high: float) -> float:
+    """Re-base a stored return onto the top of the published entry zone.
+
+    WHY THIS EXISTS. Every return in signal_outcomes is measured from
+    `reference_close` — the previous close the signal was built from. Nobody
+    can buy at that price: the call says "buy between entry_low and
+    entry_high", and entry_high is the worst fill inside the zone the app
+    itself published. Measured across all 168 signals on 2026-09-10, entry_high
+    sits a mean of 1.276% above reference_close (min 0.000%, max 2.634%), so
+    every figure on the Track Record page is that much better than what
+    following the call would have produced.
+
+    Both numbers are worth having and both are now reported. The
+    reference-close return measures the SIGNAL's information content; this one
+    measures the TRADE. The page leads with the second, because the page's
+    claim is about what happened to a user, not to a number.
+
+    Exact, not approximated: the evaluation price is recovered from the stored
+    return and reference_close, then re-divided by entry_high.
+    """
+    if reference_close <= 0 or entry_high <= 0:
+        return return_from_reference_pct
+    eval_price = reference_close * (1 + return_from_reference_pct / 100)
+    return (eval_price - entry_high) / entry_high * 100
+
+
 def compute_track_record(db: Session) -> dict:
     """What actually happened to every signal this app has published.
 
@@ -247,7 +273,14 @@ def compute_track_record(db: Session) -> dict:
     is not mistaken for a verdict, and a good one is not mistaken for an edge.
     """
     total_signals = db.query(DailySignal).count()
-    outcomes = db.query(SignalOutcome).all()
+    # Joined to the signal, because the return stored on the outcome is measured
+    # from reference_close and a buyer cannot fill there — see _from_entry below.
+    rows = (
+        db.query(SignalOutcome, DailySignal.reference_close, DailySignal.entry_high)
+        .join(DailySignal, DailySignal.id == SignalOutcome.signal_id)
+        .all()
+    )
+    outcomes = [o for o, _ref, _hi in rows]
     dates = db.query(func.min(DailySignal.date), func.max(DailySignal.date)).one()
 
     horizons = []
@@ -255,9 +288,17 @@ def compute_track_record(db: Session) -> dict:
         ret_attr, nifty_attr = f"return_{h}d", f"nifty_return_{h}d"
         pairs = [
             (float(getattr(o, ret_attr)), float(getattr(o, nifty_attr)) if getattr(o, nifty_attr) is not None else None)
-            for o in outcomes
+            for o, _ref, _hi in rows
             if getattr(o, ret_attr) is not None
         ]
+        # The same signals, re-based to the top of the published entry zone.
+        from_entry = [
+            (_from_entry(float(getattr(o, ret_attr)), float(ref), float(hi)),
+             float(getattr(o, nifty_attr)) if getattr(o, nifty_attr) is not None else None)
+            for o, ref, hi in rows
+            if getattr(o, ret_attr) is not None
+        ]
+        entry_matched = [(r, n) for r, n in from_entry if n is not None]
         if not pairs:
             horizons.append({"horizon_days": h, "sample": 0, "sufficient_sample": False})
             continue
@@ -302,6 +343,13 @@ def compute_track_record(db: Session) -> dict:
             "edge_sample": len(matched),
             "win_rate_pct": round(100 * sum(1 for r in rets if r > 0) / len(rets), 1),
             "beat_nifty_rate_pct": round(100 * sum(1 for r, n in matched if r > n) / len(matched), 1) if matched else None,
+            # The tradeable figures. Same signals, same windows, re-based to a
+            # price a buyer could actually have paid.
+            "avg_return_from_entry_pct": round(sum(r for r, _ in from_entry) / len(from_entry), 2),
+            "edge_from_entry_pct": (
+                round(sum(r - n for r, n in entry_matched) / len(entry_matched), 2)
+                if entry_matched else None
+            ),
         })
 
     evaluated = len(outcomes)

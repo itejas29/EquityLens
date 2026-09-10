@@ -107,6 +107,7 @@ export default function TrackRecordPage() {
                       <th>Horizon</th>
                       <th className="r">Signals</th>
                       <th className="r">Avg return</th>
+                      <th className="r">From entry</th>
                       <th className="r">NIFTY</th>
                       <th className="r">Edge</th>
                       <th className="r">Win rate</th>
@@ -126,9 +127,12 @@ export default function TrackRecordPage() {
                         </td>
                         <td className="r num">{h.sample || "—"}</td>
                         <td className={`r num ${tone(h.avg_return_pct)}`}>{pct(h.avg_return_pct)}</td>
+                        <td className={`r num ${tone(h.avg_return_from_entry_pct)}`}>
+                          {pct(h.avg_return_from_entry_pct)}
+                        </td>
                         <td className="r num" style={{ color: "var(--text-3)" }}>{pct(h.avg_nifty_return_pct)}</td>
-                        <td className={`r num ${tone(h.edge_vs_nifty_pct)}`} style={{ fontWeight: 700 }}>
-                          {pct(h.edge_vs_nifty_pct)}
+                        <td className={`r num ${tone(h.edge_from_entry_pct ?? h.edge_vs_nifty_pct)}`} style={{ fontWeight: 700 }}>
+                          {pct(h.edge_from_entry_pct ?? h.edge_vs_nifty_pct)}
                           {/* The edge is a mean of per-signal differences, so it can
                               only be computed for signals that also have a NIFTY
                               window. Normally that is all of them; when it is not,
@@ -152,11 +156,18 @@ export default function TrackRecordPage() {
               fontSize: 12, color: "var(--text-3)", marginTop: 12,
               maxWidth: 760, lineHeight: 1.7,
             }}>
-              <strong>Edge</strong> is the column that matters: return in excess of simply holding
-              the index for the same days. It is the average of each signal's own
-              difference against NIFTY, not the gap between two separately averaged
-              columns — those coincide only while every signal has a NIFTY window,
-              and an <span className="num">n=</span> marker appears when one does not. A positive average return during a rising market is not
+              <strong>Avg return</strong> is measured from the reference close each signal
+              was built on. <strong>From entry</strong> re-bases the identical signals and
+              windows onto the top of the published entry zone — the worst fill inside the
+              range the call actually told you to buy in, and the only one of the two you
+              could have obtained. It is always the lower number.
+              {" "}
+              <strong>Edge</strong> is the column that matters: return in excess of simply
+              holding the index for the same days, measured from entry. It is the average
+              of each signal's own difference against NIFTY, not the gap between two
+              separately averaged columns — those coincide only while every signal has a
+              NIFTY window, and an <span className="num">n=</span> marker appears when one
+              does not. A positive average return during a rising market is not
               evidence of skill on its own, and a negative one during a falling market is not
               proof of its absence — which is why the benchmark is measured over each signal's own
               window rather than a fixed period.
