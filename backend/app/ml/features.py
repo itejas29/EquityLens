@@ -10,13 +10,32 @@ point-in-time-safe as recomputing them from a date-truncated slice would be
 (same reasoning documented in app/services/backtest.py) — there is no need
 to (and this module does not) redo that computation here.
 
-FUNDAMENTALS DATA LIMITATION: pe_ratio, pb_ratio, operating_margin, debt_to_equity,
-revenue_growth, and eps_growth are NOT point-in-time — `fundamentals` holds
-one snapshot per stock, so the same values are broadcast across every row
-for that stock regardless of date. This is a real limitation of the data
-source (documented in docs/ml_results.md): the model can use these features
-to tell stocks apart from each other, but not to learn how a stock's own
-fundamentals evolved over time.
+FUNDAMENTALS ARE A LEAK, NOT MERELY A LIMITATION — and this note used to say
+the milder thing. pe_ratio, pb_ratio, operating_margin, debt_to_equity,
+revenue_growth and eps_growth come from `fundamentals`, which the loader reads
+with ORDER BY as_of_date DESC LIMIT 1: the MOST RECENT snapshot, broadcast
+across every row for that stock regardless of date. Measured against production
+on 2026-09-10:
+
+    fundamentals as_of_date : 2026-08-14 .. 2026-09-01  (5 distinct dates)
+    price history spans     : 2016-08-16 .. 2026-09-09
+
+So a PE measured on 2026-09-01 is attached to rows dated back to 2016-08-16 —
+a decade of look-ahead. And because the value is CONSTANT per stock, it is not
+a weak feature; it is a stock-identity label carrying end-state information.
+Against a chronological train/test split, a model can learn from the training
+period which stocks ended up with which fundamentals and apply that to the same
+stocks in the test period.
+
+The previous wording — "can tell stocks apart from each other, but not learn
+how a stock's own fundamentals evolved" — framed this as a LOSS of information.
+It is a LEAK of it. Those have opposite consequences for a reported metric.
+
+INCLUDE_FUNDAMENTAL_FEATURES therefore defaults to False. The project's first
+build rule is that something which cannot be built properly is left out and
+said so, and point-in-time fundamentals cannot be built from a table that only
+holds the last three weeks of snapshots. The toggle stays so the effect on
+ROC-AUC can be measured rather than assumed.
 
 TARGET: 1 if the stock's forward 20-trading-day return beats the ^NSEI
 benchmark's forward 20-trading-day return over the same window, else 0.
@@ -94,9 +113,14 @@ FEATURE_COLUMNS = [
     "dist_52w_low",
     # Cross-sectional percentile ranks, computed per date
     *[f"cs_{c}" for c in CROSS_SECTIONAL_BASE],
-    # Fundamentals. Static snapshots broadcast across dates — they separate
-    # stocks from each other but carry no time variation. See the limitation
-    # note in this module's docstring.
+]
+
+# Static snapshots broadcast across dates — a per-stock constant carrying
+# end-state information. Off by default; see the leak note in the module
+# docstring for why, and for how to measure the difference.
+INCLUDE_FUNDAMENTAL_FEATURES = False
+
+FUNDAMENTAL_FEATURE_COLUMNS = [
     #
     # `roe` is deliberately absent. Measured coverage across the 500-stock
     # universe: pe 474/500 · pb 498/500 · debt_to_equity 457/500 ·
@@ -112,6 +136,9 @@ FEATURE_COLUMNS = [
     "eps_growth",
     "operating_margin",
 ]
+
+if INCLUDE_FUNDAMENTAL_FEATURES:
+    FEATURE_COLUMNS = FEATURE_COLUMNS + FUNDAMENTAL_FEATURE_COLUMNS
 
 
 def _load_panel(db: Session) -> pd.DataFrame:

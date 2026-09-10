@@ -103,3 +103,48 @@ def test_the_row_split_this_replaced_would_have_failed_these():
 
     # And it purged nothing: train ran right up to where validation began.
     assert max(old_train["date"]) >= min(old_val["date"])
+
+
+# ------------------------------------------------- the fundamentals leak --
+
+def test_fundamentals_are_excluded_from_the_default_feature_set():
+    """They are not a weak feature — they are a per-stock constant carrying
+    end-state information.
+
+    The loader reads `fundamentals` with ORDER BY as_of_date DESC LIMIT 1, and
+    production holds only 2026-08-14..2026-09-01 against price history from
+    2016-08-16. So a PE measured in September 2026 is attached to rows dated
+    2016. Constant per stock, it works as a stock-identity label: against a
+    chronological split a model can learn which stocks ended up with which
+    fundamentals and apply that to the same stocks in test.
+    """
+    from app.ml.features import (
+        FEATURE_COLUMNS,
+        FUNDAMENTAL_FEATURE_COLUMNS,
+        INCLUDE_FUNDAMENTAL_FEATURES,
+    )
+
+    assert INCLUDE_FUNDAMENTAL_FEATURES is False
+    leaked = set(FEATURE_COLUMNS) & set(FUNDAMENTAL_FEATURE_COLUMNS)
+    assert not leaked, f"non-point-in-time features are in the default set: {sorted(leaked)}"
+
+
+def test_the_price_derived_features_are_still_there():
+    """Excluding fundamentals must not have gutted the feature set."""
+    from app.ml.features import FEATURE_COLUMNS
+
+    for expected in ("rsi_14", "macd_hist", "ret_20", "rel_20", "volatility", "beta"):
+        assert expected in FEATURE_COLUMNS
+    assert len(FEATURE_COLUMNS) >= 20
+
+
+def test_the_toggle_is_what_controls_it():
+    """Kept switchable so the effect on ROC-AUC can be measured rather than
+    assumed — the point of turning it off is to be able to compare."""
+    import inspect
+
+    from app.ml import features
+
+    source = inspect.getsource(features)
+    assert "if INCLUDE_FUNDAMENTAL_FEATURES:" in source
+    assert "FEATURE_COLUMNS = FEATURE_COLUMNS + FUNDAMENTAL_FEATURE_COLUMNS" in source
