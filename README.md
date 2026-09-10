@@ -200,7 +200,7 @@ that date's rows.
 The UI states a direct call — BUY NOW / BUY / WAIT — derived from where the
 live price sits against the frozen entry zone. Price above the zone is always
 a WAIT: past the entry range the stop is proportionally further away, which
-breaks the 1:2 the target was set for. This is a private tool for a known
+erodes the reward the target was set for. This is a private tool for a known
 group, not a published research product; the decisive wording does not come
 with any claim of accuracy, and the measured backtest below still shows the
 strategy underperforming a NIFTY 50 buy-and-hold over the tested window.
@@ -229,15 +229,48 @@ overall = 0.30·technical + 0.30·fundamental + 0.20·valuation + 0.20·risk
 
 **Signal**: ≥75 `STRONG_ACCUMULATE` · 60–74 `ACCUMULATE` · 45–59 `WATCH` · 30–44 `AVOID` · <30 `STRONG_AVOID`
 
-**Levels** (`app/services/levels.py`): ATR(14), entry zone = `close ± 0.5×ATR`, stop = `max(close − 2×ATR, 20-day rolling low)` whichever is tighter (stored as `stop_method`), target set to hit exactly a 1:2 risk:reward off whichever stop wins.
+**Levels** (`app/services/levels.py`): ATR(14), entry zone = `close ± 0.5×ATR`, target set from a nominal 1:2 risk:reward off the stop.
+
+Two things about this are easy to misread:
+
+- **The stop rule differs between the two paths.** The `recommendations` view uses the defaults — `max(close − 2×ATR, 20-day rolling low)`, whichever is tighter, stored as `stop_method`. The **live V1 strategy that publishes daily signals uses a 4×ATR stop and no support stop at all**, so its `stop_method` is always `atr`.
+- **The reported `risk_reward` is the realised ratio, not the nominal 1:2.** The target is built off the *close*, while the entry zone extends half an ATR *above* it — so a buyer filling at the top of the published zone gets less. Measured across 60 live stocks: **1.67**, not 2.00. On the `recommendations` defaults, where a support stop can sit above the ATR stop, a worked case gives **0.50**. `risk_reward_nominal` carries the 2.0 parameter separately.
 
 **Position sizing**: risk per trade `0.5% / 1% / 2%` of capital by low/moderate/high appetite; `shares = floor(max_loss / (entry − stop))`, capped by a per-stock allocation limit (`15% / 20% / 25%` of capital).
 
 **Portfolio construction**: candidates filtered to overall_score ≥ `70 / 60 / 50` by appetite, ranked by score, greedily allocated respecting a 2-stocks-per-sector cap and a `20% / 10% / 5%` cash buffer.
 
+## Live track record — results as measured
+
+Forward, out-of-sample, and the only evidence here that no methodology argument
+can take away. Measured 2026-09-10 over 168 signals published since 2026-08-14:
+
+| horizon | n | avg return | from entry | NIFTY | **edge** | win rate |
+|---|---|---|---|---|---|---|
+| 1d | 140 | −0.43% | −1.82% | −0.22% | **−1.60%** | 50.0% |
+| 5d | 109 | −1.78% | −2.98% | −0.75% | **−2.23%** | 45.0% |
+| 10d | 72 | −1.98% | −2.69% | −1.51% | **−1.18%** | 41.7% |
+| 20d | 0 | — | — | — | — | — |
+
+3 targets hit against 14 stops. The 20-day row is empty because the app has
+only published since 2026-08-14 and no signal is yet 20 trading days old.
+
+**`from entry` is the column that counts.** `avg return` is measured from the
+reference close each signal was built on; nobody can buy there. `from entry`
+re-bases the identical signals onto the top of the published entry zone — the
+worst fill inside the range the call told you to buy in, and the only one of the
+two obtainable. Across all 168 signals that zone top sits a mean of 1.276% above
+the reference close. **Edge** is the average of each signal's own difference
+against NIFTY over its own window, computed from entry.
+
+The sample is small and the window is one month — these are not yet a verdict,
+and the page says so. But every horizon is negative, the win rate falls as the
+horizon lengthens, and stops are hit nearly five times more often than targets.
+See [`docs/audit/track-record-basis.md`](docs/audit/track-record-basis.md).
+
 ## Backtest — results as measured
 
-One example run over the seeded 40-stock universe, exactly as returned by `POST /backtest` — not tuned, not cherry-picked:
+One example run, exactly as returned by `POST /backtest` — not tuned, not cherry-picked. It dates from when the universe was 40 seeded stocks; it is now ~500, so this table is a historical record of one run rather than a current measurement:
 
 **Config**: `start_date=2025-03-01, end_date=2026-08-01, initial_capital=₹500,000, risk_appetite=moderate, rebalance_frequency=monthly, horizon_days=90, transaction_cost_pct=0.12% (round-trip), slippage_pct=0.05%, risk_free_rate=6.5%`
 
@@ -246,13 +279,19 @@ One example run over the seeded 40-stock universe, exactly as returned by `POST 
 | Total return | 4.22% | 10.24% |
 | CAGR | 2.97% | 7.16% |
 | Sharpe | -0.288 | 0.110 |
-| Sortino | -0.366 | 0.163 |
+| Sortino | -0.366 | 0.163 | *(overstated in magnitude — see note)* |
 | Max drawdown | -9.14% (132 days) | -15.18% (140 days) |
 | Final equity | ₹521,076 | ₹551,184 |
 
 Strategy-only: 88 trades, 38.64% win rate, avg win ₹4,933 / avg loss -₹2,720, profit factor 1.14, avg holding period 26.9 days.
 
-The strategy underperformed the benchmark on raw return in this window but took on less drawdown risk to do it — reported plainly either way. **Backtest scoring uses only the technical + risk sub-scores** (renormalized 0.6/0.4), not the full four-score composite: `fundamentals` holds one snapshot per stock, not a historical time series, so applying it to a rebalance date in the past would be look-ahead bias. This means backtest results measure a price-action strategy, not the fundamentals-aware strategy used for live recommendations.
+The strategy underperformed the benchmark on raw return in this window but took on less drawdown risk to do it — reported plainly either way.
+
+Three caveats on this table, all measured rather than hedged:
+
+- **The Sortino figures are overstated in magnitude by roughly 7–18%.** The denominator was the standard deviation of the negative days rather than the downside deviation about the target. Fixed 2026-09-10; this stored table predates the fix and would need a re-run to refresh. Sharpe is unaffected. [`docs/audit/backtest-metrics.md`](docs/audit/backtest-metrics.md)
+- **The universe is survivors-only.** 67 inactive stocks holding 112,385 bars are excluded from every backtest, which inflates strategy returns. [`docs/audit/survivorship-bias.md`](docs/audit/survivorship-bias.md)
+- **The benchmark pays no costs while the strategy pays both.** That understates the strategy's edge by 0.22pp. The two biases run in opposite directions and partly offset. [`docs/audit/net-bias.md`](docs/audit/net-bias.md) **Backtest scoring uses only the technical + risk sub-scores** (renormalized 0.6/0.4), not the full four-score composite: `fundamentals` holds one snapshot per stock, not a historical time series, so applying it to a rebalance date in the past would be look-ahead bias. This means backtest results measure a price-action strategy, not the fundamentals-aware strategy used for live recommendations.
 
 ## ML results — as measured
 
