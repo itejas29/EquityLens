@@ -15,6 +15,8 @@ genuinely clears the bar starts serving automatically with no code change.
 
 import json
 import logging
+import threading
+from datetime import date
 from pathlib import Path
 
 import joblib
@@ -33,6 +35,8 @@ MIN_SERVABLE_ROC_AUC = 0.55
 
 _model_cache: dict = {}
 _frame_cache: dict = {}
+# Guards the cross-section build. See _latest_frame for what happened without it.
+_frame_lock = threading.Lock()
 
 
 def _load_selected_model():
@@ -70,18 +74,50 @@ def _load_selected_model():
 
 
 def _latest_frame(db: Session) -> pd.DataFrame:
-    """Cached latest-cross-section. Built once per process rather than per call:
-    the cross-sectional rank features need every stock's latest row, so building
-    it per stock would rebuild the whole panel for each of 500 lookups.
+    """Cached latest cross-section, rebuilt at most once per day per process.
+
+    Built once rather than per call because the cross-sectional rank features
+    need every stock's latest row, so building it per stock would rebuild the
+    whole panel for each of 500 lookups.
+
+    Two things this used to get wrong. Both were dormant — nothing is served
+    while the ROC-AUC gate is unmet — and both would have gone live the moment
+    a retrain cleared the bar.
+
+    IT NEVER EXPIRED. `if "frame" not in _frame_cache` and nothing else. There
+    was an invalidate_feature_cache() whose docstring said "call after ingesting
+    or refreshing stocks", and it had ZERO callers anywhere in the codebase. On
+    an always-on box with --restart always the process runs for weeks, so served
+    probabilities could have been computed from a cross-section weeks old. Now
+    stamped with the date it was built and rebuilt when that date rolls over,
+    so a missed invalidation costs one day rather than forever.
+
+    IT STAMPEDED. The check-then-fill was unguarded, so N worker threads
+    arriving together on a cold cache would each build the whole panel —
+    up to 24 concurrent full-universe builds plus 24 NIFTY fetches, on a box
+    with four prior memory incidents. Now behind a lock, with the membership
+    re-checked inside it.
     """
-    if "frame" not in _frame_cache:
+    today = date.today()
+    if _frame_cache.get("date") == today and "frame" in _frame_cache:
+        return _frame_cache["frame"]
+
+    with _frame_lock:
+        # Re-checked inside the lock: whoever held it while this thread waited
+        # has almost certainly just built the frame.
+        if _frame_cache.get("date") == today and "frame" in _frame_cache:
+            return _frame_cache["frame"]
         _frame_cache["frame"] = build_latest_features_frame(db)
-    return _frame_cache["frame"]
+        _frame_cache["date"] = today
+        return _frame_cache["frame"]
 
 
 def invalidate_feature_cache() -> None:
-    """Call after ingesting or refreshing stocks — the cross-section has moved."""
-    _frame_cache.pop("frame", None)
+    """Drop the cached cross-section. Called by the pipeline jobs that move it —
+    the nightly incremental and the weekly universe rebuild."""
+    with _frame_lock:
+        _frame_cache.pop("frame", None)
+        _frame_cache.pop("date", None)
 
 
 def predict_probability(db: Session, stock_id: int) -> float | None:

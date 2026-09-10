@@ -312,6 +312,13 @@ def incremental_price_update(db: Session, today: date_type | None = None) -> Inc
     if needs_incremental:
         _process_incremental_pulls(db, needs_incremental, today, benchmark_df, result)
 
+    # The ML cross-section is now stale — new bars mean new latest rows and
+    # new cross-sectional ranks. invalidate_feature_cache() had no callers at
+    # all before this, so a served frame could outlive the data by weeks.
+    from app.ml.predict import invalidate_feature_cache
+
+    invalidate_feature_cache()
+
     result.seconds = time.time() - started
     logger.info(
         "pipeline.incremental.finish succeeded=%d already_current=%d failed=%d duration=%.1fs",
