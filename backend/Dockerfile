@@ -18,6 +18,14 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
 
 COPY --chown=appuser:appuser . .
 
+# WORKDIR created /app as root before appuser existed, and COPY --chown only
+# covers the files it copies, not the directory holding them. So /app stayed
+# root-owned 755 and the non-root process could not create anything in it —
+# which broke two real things: experiment_lock writes /app/.experiment.lock, and
+# app/ml/train.py writes its joblib artifacts under /app/app/ml/artifacts.
+# Found when the Phase 21 sweep failed to take its lock.
+RUN chown appuser:appuser /app
+
 USER appuser
 
 EXPOSE 8000

@@ -249,3 +249,22 @@ def test_a_short_jwt_secret_is_refused_at_startup(monkeypatch):
 
     monkeypatch.setenv("JWT_SECRET_KEY", "x" * MIN_JWT_SECRET_LENGTH)
     assert Settings().jwt_secret_key
+
+
+def test_the_container_can_write_where_the_app_needs_to():
+    """The non-root hardening left /app root-owned and broke two real writers.
+
+    WORKDIR creates /app as root before appuser exists, and COPY --chown covers
+    only the files it copies, not the directory holding them. So a non-root
+    process could not create anything in /app — which broke experiment_lock
+    (/app/.experiment.lock) and ML training (/app/app/ml/artifacts/*.joblib).
+    Found when the Phase 21 sweep failed to take its lock, not by reading the
+    Dockerfile.
+    """
+    import pathlib
+
+    dockerfile = (pathlib.Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    assert "USER appuser" in dockerfile, "the container must not run as root"
+    chown_line = dockerfile.index("RUN chown appuser:appuser /app")
+    user_line = dockerfile.index("USER appuser")
+    assert chown_line < user_line, "/app must be chowned before dropping privileges"
