@@ -88,5 +88,18 @@ the trade log says how much of the result rests on it.
 - The default is left biased **on purpose**, so every published phase result
   stays reproducible. Turning it on changes what the strategy could have
   bought, which is a research decision rather than a bug fix.
-- **Not yet done:** re-running a fold both ways to quantify the gap in points
-  of CAGR. That needs the lab instance, which is occupied by the Phase 20 sweep.
+- **Ready to run:** `backend/scripts/phase21_survivorship.py` runs the same 16
+  folds both ways and reports the gap per fold and in mean, alongside the count
+  of `delisted` exits so the share resting on the last-known-close fill is
+  visible. Its machinery is smoke-tested; it needs a database that has retained
+  the inactive stocks (production has 67; a freshly prepared research DB may
+  have none, and the script refuses to run rather than silently comparing two
+  identical arms).
+
+  Phase 19's docstring closed this door — "the NSE catalogue has no delisted
+  constituents and yfinance exposes no historical membership" — and that is
+  only partly right. Names that delisted before ever entering this database are
+  indeed invisible and always will be. The 67 that entered and later dropped
+  out are not, and they are what Phase 21 measures. The result is a **lower
+  bound**: only names that reached the database are included, and the delisting
+  exit fills at the last traded price rather than at zero.

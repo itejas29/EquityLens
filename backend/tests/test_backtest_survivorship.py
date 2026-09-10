@@ -160,3 +160,48 @@ def test_a_delisted_exit_is_labelled_not_hidden(db_session):
     # And it must exit at the last known close, not at zero — assuming a
     # wipeout would be inventing a number the data does not support.
     assert 'last_known_close.get(pos.stock_id, pos.entry_price), "delisted"' in source
+
+
+def test_a_delisted_name_that_ranks_well_actually_gets_traded(db_session, monkeypatch):
+    """The property scripts/phase21_survivorship.py depends on.
+
+    include_inactive only measures anything if a delisted name can actually be
+    SELECTED, not merely be present in the universe. Momentum ranks are
+    percentile cuts, so this gives GONE the strongest trajectory: if it is in
+    the pool it must be picked, and if the two arms still match the membership
+    wiring is broken rather than the strategy being indifferent.
+
+    Worth pinning because the first version of the Phase 21 smoke test gave all
+    three stocks identical price paths. Their momentum tied, the percentile cut
+    dropped GONE, both arms returned the same number — and that looked exactly
+    like include_inactive doing nothing. A fixture tidier than reality hides
+    the thing it is testing.
+    """
+    _stock(db_session, "ALIVE1", active=True, first=date(2025, 1, 1), last=date(2026, 6, 30))
+    _stock(db_session, "ALIVE2", active=True, first=date(2025, 1, 1), last=date(2026, 6, 30))
+    gone = _stock(db_session, "GONE", active=False,
+                  first=date(2025, 1, 1), last=date(2026, 2, 2))
+
+    # Give GONE a far stronger trajectory than the survivors.
+    from decimal import Decimal
+
+    from app.models.price_history import PriceHistory
+    price = 100.0
+    for row in (db_session.query(PriceHistory)
+                .filter(PriceHistory.stock_id == gone.id)
+                .order_by(PriceHistory.date).all()):
+        price *= 1.003
+        row.close = Decimal(str(round(price, 2)))
+        row.high = Decimal(str(round(price * 1.01, 2)))
+        row.low = Decimal(str(round(price * 0.99, 2)))
+        row.open = Decimal(str(round(price, 2)))
+    db_session.flush()
+
+    biased = _run(db_session, monkeypatch)
+    unbiased = _run(db_session, monkeypatch, include_inactive=True)
+
+    assert "GONE" not in {t.symbol for t in biased.trade_log}
+    assert "GONE" in {t.symbol for t in unbiased.trade_log}, (
+        "a delisted name with the best momentum was still never traded"
+    )
+    assert {t.symbol for t in biased.trade_log} != {t.symbol for t in unbiased.trade_log}
