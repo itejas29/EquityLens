@@ -193,6 +193,48 @@ def _load_all_price_frames(db: Session, stocks: list[Stock]) -> dict[int, pd.Dat
     return {stock.id: _load_ohlcv_df(db, stock.id) for stock in stocks}
 
 
+def _apply_quality_gate(candidates: list, mode: str, min_percentile: float) -> list:
+    """Drop candidates in the worst part of the universe on volatility and/or
+    trailing drawdown.
+
+    A MISSING value leaves the gate open for that name rather than excluding it.
+    A data gap must not masquerade as a quality signal — the same rule the
+    Phase 17 trend gate follows.
+
+    Ranked within the candidate set on the date, not against a fixed threshold:
+    a 30% annualised volatility meant something different in 2018 than in 2020,
+    and a constant cutoff would silently tighten and loosen across the folds.
+    """
+    def _keep(values: dict[int, float], higher_is_better: bool) -> set[int]:
+        if len(values) < 2:
+            return set(values)
+        ordered = sorted(values.items(), key=lambda kv: kv[1], reverse=higher_is_better)
+        # round(n * (100 - p) / 100), NOT int(n * (1 - p/100)). The second form
+        # truncates: 1 - 80/100 is 0.19999999999999996 in binary float, so a
+        # universe of 10 at the 80th percentile kept 1 name instead of 2. Doing
+        # the subtraction in whole percents before dividing avoids it.
+        cutoff = max(1, round(len(ordered) * (100 - min_percentile) / 100))
+        return {sid for sid, _ in ordered[:cutoff]}
+
+    keep = set(s.stock_id for s in candidates)
+
+    if mode in ("lowvol", "both"):
+        vols = {s.stock_id: s.volatility for s in candidates if s.volatility is not None}
+        # Lower volatility is better, so rank ascending.
+        passing = _keep(vols, higher_is_better=False)
+        missing = {s.stock_id for s in candidates if s.volatility is None}
+        keep &= (passing | missing)
+
+    if mode in ("lowdd", "both"):
+        # max_drawdown is negative; closer to zero is better, so higher is better.
+        dds = {s.stock_id: s.max_drawdown for s in candidates if s.max_drawdown is not None}
+        passing = _keep(dds, higher_is_better=True)
+        missing = {s.stock_id for s in candidates if s.max_drawdown is None}
+        keep &= (passing | missing)
+
+    return [s for s in candidates if s.stock_id in keep]
+
+
 def _select_new_entries(
     snapshot: dict,
     stocks_by_id: dict[int, Stock],
@@ -217,6 +259,19 @@ def _select_new_entries(
         if sid not in held_ids and snap.overall_score is not None and snap.overall_score >= min_score
         and snap.levels is not None and snap.trend_ok
     ]
+
+    # Phase 21 quality gate, applied at the same point and for the same reasons.
+    # Deliberately AFTER the snapshot rather than inside the scoring pass: every
+    # arm of the Phase 21 sweep then produces an identical snapshot and can share
+    # one indicator cache, which is the difference between a five-hour run and a
+    # day-long one. Cross-sectional, so "low volatility" means low relative to
+    # the universe on that date rather than against a fixed number that would
+    # drift in and out of meaning across a decade.
+    quality = getattr(p, "quality_filter", "none")
+    if quality != "none" and candidates:
+        candidates = _apply_quality_gate(candidates, quality,
+                                         getattr(p, "quality_min_percentile", 50.0))
+
     candidates.sort(key=lambda s: s.overall_score, reverse=True)
 
     sector_counts = dict(held_sector_counts)

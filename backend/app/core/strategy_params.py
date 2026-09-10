@@ -37,6 +37,21 @@ class StrategyParams:
     # behaviour and a prime whipsaw suspect, so it is a sweepable flag rather
     # than a hardcoded rule.
     use_support_stop: bool = True
+
+    # --- Phase 21 quality gate -------------------------------------------
+    # "none" | "lowvol" | "lowdd" | "both". Refuses to OPEN a position whose
+    # trailing volatility or trailing max drawdown ranks in the worst part of
+    # the universe, without touching the ranking or any position already held.
+    #
+    # Both inputs are derived from price history and are therefore genuinely
+    # point-in-time. This is the whole reason the gate uses them rather than
+    # ROE or EPS growth: the fundamentals table holds 18 days of snapshots
+    # against a 10-year backtest window, so an accounting-quality filter would
+    # be a decade of look-ahead, and ROE is present for only 70 of 500 names.
+    quality_filter: str = "none"
+    # Percentile a name must reach on each active check, 0-100, higher = better.
+    # 50 keeps the better half of the universe on that dimension.
+    quality_min_percentile: float = 50.0
     support_lookback_days: int = SUPPORT_LOOKBACK_DAYS
 
     # --- Holding ---

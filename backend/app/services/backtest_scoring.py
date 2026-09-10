@@ -54,6 +54,11 @@ class PointInTimeSnapshot:
     # recent trend contradicts that rank" — checked ONLY when opening a new
     # position, never when ranking or when deciding to hold.
     trend_ok: bool = True
+    # Trailing max drawdown, the same series the risk sub-score percentile-ranks.
+    # Carried for the Phase 21 quality gate, which is applied at SELECTION time
+    # rather than during scoring — so every arm of that sweep produces an
+    # identical snapshot and can share one indicator cache.
+    max_drawdown: float | None = None
 
 
 def _liquidity(price_df: pd.DataFrame) -> float | None:
@@ -250,6 +255,7 @@ def compute_point_in_time_universe(
             levels=row.levels,
             latest_close=row.close,
             volatility=None if pd.isna(row.volatility) else float(row.volatility),
+            max_drawdown=None if pd.isna(row.max_drawdown) else float(row.max_drawdown),
         )
 
     return results
