@@ -36,6 +36,7 @@ from app.core.daily_signals_config import (
     RSI_STRONG_LOW,
     VOLUME_SURGE_RATIO,
 )
+from app.core.cache import get_market_regime_cache, set_market_regime_cache
 from app.core.memory_hygiene import trim_every
 from app.models.daily_signal import DailySignal
 from app.models.fundamentals import Fundamentals
@@ -221,7 +222,25 @@ def compute_market_regime(db: Session, as_of: date_type) -> dict:
     Same rule the backtest uses: close >= 200DMA is bull. Surfaced in the API so
     the UI can state the market state and the resulting exposure rather than
     silently publishing a full-size list during a defensive regime.
+
+    CACHED, and not as an optimisation. This function fetches ^NSEI from
+    yfinance, and GET /daily-signals — the app's main page, unauthenticated —
+    called it on EVERY request: one upstream HTTP round trip per page view.
+    Under enough traffic Yahoo rate-limits, and _with_retry then sleeps 2s and
+    8s while holding one of 24 worker threads, so the busiest public endpoint
+    could take the API down simply by being used. The regime is derived from
+    daily closes and changes at most once a day; core/cache.py degrades a Redis
+    outage to a miss, so the worst case is the old behaviour.
     """
+    cache_key = as_of.isoformat()
+    cached = get_market_regime_cache(cache_key)
+    if cached is not None:
+        # `as_of` was serialised as a string going in; hand back the date the
+        # uncached path returns so callers cannot tell the two apart.
+        if cached.get("as_of"):
+            cached["as_of"] = date_type.fromisoformat(cached["as_of"])
+        return cached
+
     bench = fetch_price_history("^NSEI", period="2y")[["date", "close"]].sort_values("date")
     # Yahoo's row for the still-forming session (today, before intraday data
     # settles) frequently comes back with a NaN close. json.dumps cannot encode
@@ -231,19 +250,26 @@ def compute_market_regime(db: Session, as_of: date_type) -> dict:
     bench = bench.dropna(subset=["close"])
     bench = bench[bench["date"] <= as_of]
     if len(bench) < V1.regime_ma_days:
+        # Deliberately NOT cached: this is the "not enough data yet" branch, and
+        # caching it would keep answering "unknown" for 15 minutes after the
+        # data arrived.
         return {"regime": "unknown", "exposure": 1.0, "nifty_close": None, "nifty_200dma": None}
 
     closes = bench["close"].astype(float)
     ma = float(closes.tail(V1.regime_ma_days).mean())
     close = float(closes.iloc[-1])
     is_bull = close >= ma
-    return {
+    result = {
         "regime": "bull" if is_bull else "bear",
         "exposure": V1.bull_exposure if is_bull else V1.bear_exposure,
         "nifty_close": round(close, 2),
         "nifty_200dma": round(ma, 2),
         "as_of": bench["date"].iloc[-1],
     }
+    # json.dumps cannot encode a date, so it is stored as ISO and rebuilt on the
+    # way out — see the read path above.
+    set_market_regime_cache(cache_key, {**result, "as_of": result["as_of"].isoformat()})
+    return result
 
 
 def _momentum_scores(db: Session, stock_ids: list[int], as_of: date_type) -> dict[int, float]:

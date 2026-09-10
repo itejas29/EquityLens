@@ -161,6 +161,33 @@ TTL_LIVE_PRICES = 300  # seconds
 TTL_SESSION_SNAPSHOT = 7 * 24 * 3600
 
 
+# ── Market regime (NIFTY 200DMA) ──
+
+# The regime is derived from DAILY closes, so for a past date it never changes
+# and for today it moves only as the still-forming close settles. 15 minutes is
+# far shorter than that and far longer than a page load.
+#
+# This cache is not an optimisation, it is a fix. compute_market_regime()
+# fetches ^NSEI from yfinance, and GET /daily-signals — the app's main page,
+# unauthenticated — called it on EVERY request. One upstream HTTP round trip per
+# page view, and under enough traffic Yahoo rate-limits, at which point
+# _with_retry sleeps 2s then 8s while holding one of 24 worker threads. The
+# busiest public endpoint could take the API down by being used.
+TTL_MARKET_REGIME = 900
+
+
+def market_regime_key(as_of: str) -> str:
+    return f"cache:market_regime:{as_of}"
+
+
+def get_market_regime_cache(as_of: str) -> dict | None:
+    return _get_json(market_regime_key(as_of))
+
+
+def set_market_regime_cache(as_of: str, value: dict) -> None:
+    _set_json(market_regime_key(as_of), value, TTL_MARKET_REGIME)
+
+
 def live_prices_key() -> str:
     return "live:prices"
 
