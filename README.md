@@ -295,14 +295,27 @@ Three caveats on this table, all measured rather than hedged:
 
 ## ML results — as measured
 
-Full writeup: [`docs/ml_results.md`](docs/ml_results.md). Headline, from a real training run on the seeded universe:
+**Nothing is served today, and that is the intended behaviour.** The latest
+real training run (2026-08-15, 80,846 rows across 375 stocks) measured:
 
-- 1,100 usable (stock, date) rows survive after dropping missing features (mostly the ROE/debt-equity gaps below)
-- Time-based 70/15/15 split, no shuffling
+| model | test ROC-AUC | test precision | test accuracy |
+|---|---|---|---|
+| RandomForest *(selected)* | **0.5369** | 0.6135 | 0.5120 |
+| LogisticRegression | 0.5308 | 0.5945 | 0.5528 |
 
-> **These figures predate two fixes on 2026-09-10 and are optimistic.** They
-> have not been regenerated — that needs a full training run — and should be
-> expected to fall when they are.
+Both are statistically indistinguishable from a coin flip.
+`app/ml/predict.py` refuses to serve a model whose own recorded test ROC-AUC is
+below `MIN_SERVABLE_ROC_AUC = 0.55`, so `ml_probability` reads as **null** on
+every recommendation. Verified against production on 2026-09-10: the serving
+gate returns no model. Rendering a near-random number next to a buy call would
+make it look like corroborating evidence when it carries no measured
+information.
+
+The gate is self-enforcing: a future retrain that genuinely clears the bar
+starts serving with no code change.
+
+> **Even 0.5369 is optimistic — it predates two leakage fixes made on
+> 2026-09-10, and has not been regenerated since.**
 >
 > 1. **The split leaked.** It was positional on a stock-by-date panel, so it cut
 >    mid-date and put the same trading day on both sides of a boundary; and it
@@ -315,12 +328,18 @@ Full writeup: [`docs/ml_results.md`](docs/ml_results.md). Headline, from a real 
 >    per stock, it acted as a stock-identity label carrying end-state
 >    information. Now excluded by default — point-in-time fundamentals cannot be
 >    built from this data, so per build rule 1 they are left out and said so.
->    `INCLUDE_FUNDAMENTAL_FEATURES` keeps the comparison measurable.
 >
 > See [`docs/audit/ml-leakage.md`](docs/audit/ml-leakage.md).
-- **LogisticRegression beat RandomForest** on every held-out test metric (ROC-AUC 0.734 vs 0.566) — so `app/ml/predict.py` serves the LR model, not RF, despite RF being the more complex "expected" choice. Reported and used as measured, not tuned until RF won.
-- On the test period, the ML probability ranking beat the rule-based technical+risk score at identifying near-term outperformers (63.3% vs 34.7% precision at the top 30%, vs. a 50.9% base rate) — one 165-row test window, not a general claim.
-- `ml_probability` is an **additional** field on recommendations, never folded into `overall_score`.
+
+An earlier version of this section reported ROC-AUC 0.734 and 63.3% precision.
+Those came from a 1,100-row run over the original 40-stock seed universe and
+were superseded by the 80,846-row run above — which the code had already acted
+on by refusing to serve the model. Kept here as a note rather than deleted,
+because the gap between the two is the point: a small-sample result that looked
+strong did not survive a real dataset.
+
+- `ml_probability` is an **additional** field on recommendations, never folded
+  into `overall_score`. Full writeup: [`docs/ml_results.md`](docs/ml_results.md).
 
 ## Tests
 
