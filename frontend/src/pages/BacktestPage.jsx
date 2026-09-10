@@ -1,10 +1,21 @@
 import { useState } from "react";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiClient, apiErrorMessage } from "../api/client";
 import ErrorMessage from "../components/ErrorMessage";
 import Loading from "../components/Loading";
 import PageHeader from "../components/PageHeader";
-import { chartColors, tooltipStyle } from "../lib/chartTheme";
+import {
+  AreaGradient, CHART_MARGIN, ChartLegend, CompareTooltip, axisProps
+} from "../components/ui/ChartKit";
+import { compactNum, inr, fmtDate } from "../components/ui/Primitives";
+
+// This page was the last one on the pre-redesign palette — a violet accent and
+// a navy tooltip that belonged to no other screen. It now draws from the same
+// design tokens as everything else, via ChartKit.
+const BACKTEST_SERIES = {
+  strategy: { label: "Strategy", color: "var(--accent)" },
+  benchmark: { label: "NIFTY 50 buy & hold", color: "var(--warn)", dashed: true },
+};
 
 const METRIC_LABELS = {
   total_return_pct: "Total return",
@@ -149,16 +160,36 @@ export default function BacktestPage() {
 
           <div className="card" style={{ marginBottom: 20 }}>
             <div className="section-title">Equity curve vs benchmark</div>
+            <div style={{ padding: "2px 0 10px" }}>
+              <ChartLegend series={BACKTEST_SERIES} />
+            </div>
             <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: chartColors.axis }} minTickGap={40} stroke={chartColors.grid} />
-                <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11, fill: chartColors.axis }} stroke={chartColors.grid} />
-                <Tooltip {...tooltipStyle} />
-                <Legend />
-                <Line type="monotone" dataKey="strategy" stroke={chartColors.accent} dot={false} name="Strategy" strokeWidth={2} />
-                <Line type="monotone" dataKey="benchmark" stroke={chartColors.muted} dot={false} name="NIFTY 50" strokeWidth={1.5} />
-              </LineChart>
+              <ComposedChart data={chartData} margin={CHART_MARGIN}>
+                <AreaGradient id="btEqGrad" />
+                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="var(--line)" />
+                <XAxis dataKey="date" {...axisProps} minTickGap={40} />
+                <YAxis
+                  {...axisProps}
+                  width={62}
+                  domain={["auto", "auto"]}
+                  tickFormatter={(v) => compactNum(v)}
+                  tick={{ fontVariantNumeric: "tabular-nums" }}
+                />
+                <Tooltip
+                  cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
+                  content={<CompareTooltip series={BACKTEST_SERIES} format={inr} labelFormat={fmtDate} />}
+                />
+                <Area
+                  type="monotone" dataKey="strategy" stroke="var(--accent)" strokeWidth={2}
+                  fillOpacity={1} fill="url(#btEqGrad)" dot={false}
+                  activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--surface)", strokeWidth: 2 }}
+                />
+                <Line
+                  type="monotone" dataKey="benchmark" stroke="var(--warn)" strokeWidth={1.5}
+                  strokeDasharray="4 3" dot={false}
+                  activeDot={{ r: 3, fill: "var(--warn)", stroke: "var(--surface)", strokeWidth: 2 }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 
