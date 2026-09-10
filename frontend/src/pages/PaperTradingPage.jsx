@@ -4,8 +4,11 @@ import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import LiveQuote from "../components/LiveQuote";
 import {
-  Change, EmptyState, ErrorState, LoadingState, SectionHeader, inr, pct, fmtDate
+  Change, EmptyState, ErrorState, LoadingState, SectionHeader, compactNum, inr, pct, fmtDate
 } from "../components/ui/Primitives";
+import {
+  AreaGradient, BaselineRule, CHART_MARGIN, CompareTooltip, axisProps
+} from "../components/ui/ChartKit";
 import { useLivePrices } from "../lib/useLivePrices";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis
@@ -519,7 +522,11 @@ const PERIODS = [
   { label: "All", days: Infinity },
 ];
 
-function PerformanceChart({ data }) {
+const PAPER_SERIES = {
+  total_equity: { label: "Portfolio Value", color: "var(--accent)" },
+};
+
+function PerformanceChart({ data, virtualCapital }) {
   const [period, setPeriod] = useState("All");
 
   const filtered = useMemo(() => {
@@ -546,6 +553,7 @@ function PerformanceChart({ data }) {
   const minE = Math.min(...filtered.map((d) => d.total_equity));
   const maxE = Math.max(...filtered.map((d) => d.total_equity));
   const pad = (maxE - minE) * 0.12 || 1000;
+  const baseline = virtualCapital ?? filtered[0]?.total_equity ?? null;
 
   return (
     <div className="panel">
@@ -604,42 +612,30 @@ function PerformanceChart({ data }) {
         </div>
       </div>
 
-      {/* Chart area */}
-      <div style={{ width: "100%", height: 260, padding: "12px 8px 0" }}>
+      {/* Chart area — same furniture as the AI Trading curve, from ChartKit, so
+          the two panels cannot drift apart in tooltip, axis or gradient. */}
+      <div style={{ width: "100%", height: 280, padding: "12px 8px 0" }}>
         <ResponsiveContainer>
-          <AreaChart data={filtered} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-            <defs>
-              <linearGradient id="ptEqGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+          <AreaChart data={filtered} margin={CHART_MARGIN}>
+            <AreaGradient id="ptEqGrad" />
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="var(--line)" />
             <XAxis
-              dataKey="date"
-              stroke="var(--text-3)"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
+              dataKey="date" {...axisProps}
               tickFormatter={(v) =>
                 new Date(v).toLocaleDateString("en-IN", { month: "short", day: "numeric" })
               }
             />
             <YAxis
+              {...axisProps}
+              width={62}
               domain={[Math.max(0, minE - pad), maxE + pad]}
-              hide
+              tickFormatter={(v) => compactNum(v)}
+              tick={{ fontVariantNumeric: "tabular-nums" }}
             />
+            <BaselineRule y={baseline} label="capital" />
             <Tooltip
-              contentStyle={{
-                background: "var(--surface)",
-                border: "1px solid var(--line)",
-                borderRadius: "var(--r)",
-                boxShadow: "var(--shadow-pop)",
-                fontSize: 13,
-              }}
-              itemStyle={{ color: "var(--text-1)", fontWeight: 600 }}
-              formatter={(value) => [inr(value), "Portfolio Value"]}
-              labelFormatter={(label) => fmtDate(label)}
+              cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
+              content={<CompareTooltip series={PAPER_SERIES} format={inr} labelFormat={fmtDate} />}
             />
             <Area
               type="monotone"
@@ -936,7 +932,7 @@ export default function PaperTradingPage() {
         {/* Performance chart */}
         <section style={{ marginBottom: 28 }}>
           <SectionHeader title="Performance" />
-          <PerformanceChart data={curve} />
+          <PerformanceChart data={curve} virtualCapital={acct?.virtual_capital} />
         </section>
 
         {/* Transaction history */}

@@ -60,7 +60,14 @@
   --sub-h: 44px;
 }
 
-.el /* ---------------------------------------------------------------- reset -- */
+/* ------------------------------------------------------------------ reset -- */
+/* The stray `.el` that used to sit on the line above this comment merged with
+   the selector below into `.el .el *` — a descendant selector requiring a
+   nested .el, which never exists. box-sizing: border-box was therefore dead
+   app-wide, and padded elements had been overflowing their containers ever
+   since. Sixteen other rules in this file have the same stray prefix but are
+   harmless: their next selector is unscoped, so the stray .el accidentally
+   scopes it, which is what was intended. */
 .el * { box-sizing: border-box; }
 
 .el {
@@ -266,6 +273,7 @@
   white-space: nowrap;
 }
 .el .tbl thead th.r, .el .tbl td.r { text-align: right; }
+.el .tbl td.r { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
 .el .tbl tbody td {
   padding: 11px 14px;

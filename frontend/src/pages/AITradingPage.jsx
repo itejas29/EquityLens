@@ -3,12 +3,20 @@ import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import LiveQuote from "../components/LiveQuote";
 import {
-  Change, EmptyState, ErrorState, LoadingState, SectionHeader, inr, fmtDate
+  Change, EmptyState, ErrorState, LoadingState, SectionHeader, compactNum, inr, fmtDate
 } from "../components/ui/Primitives";
+import {
+  AreaGradient, BaselineRule, CHART_MARGIN, ChartLegend, CompareTooltip, axisProps
+} from "../components/ui/ChartKit";
 import { useLivePrices } from "../lib/useLivePrices";
 import {
   Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
+
+const EQUITY_SERIES = {
+  total_equity: { label: "AI Portfolio", color: "var(--accent)" },
+  nifty_equity: { label: "NIFTY 50 (same capital)", color: "var(--warn)", dashed: true },
+};
 
 /* ---------------------------------------------------------------- helpers -- */
 
@@ -184,6 +192,9 @@ function PerformanceChart({ data, virtualCapital }) {
   const minE = Math.min(...allValues);
   const maxE = Math.max(...allValues);
   const pad = (maxE - minE) * 0.12 || 1000;
+  // Break-even line. Falls back to the first plotted point when the account's
+  // starting capital was not passed, so the rule never sits at an arbitrary y.
+  const baseline = virtualCapital ?? filtered[0]?.total_equity ?? null;
 
   return (
     <div className="panel">
@@ -238,40 +249,43 @@ function PerformanceChart({ data, virtualCapital }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 16, padding: "10px 18px 0", fontSize: 11.5 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-3)" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--accent)", display: "inline-block" }} />
-          AI Portfolio
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-3)" }}>
-          <span style={{ width: 10, height: 2, background: "var(--warn)", display: "inline-block" }} />
-          NIFTY 50 (same capital)
-        </span>
+      <div style={{ padding: "10px 18px 0" }}>
+        <ChartLegend series={EQUITY_SERIES} />
       </div>
 
-      <div style={{ width: "100%", height: 260, padding: "12px 8px 0" }}>
+      <div style={{ width: "100%", height: 280, padding: "12px 8px 0" }}>
         <ResponsiveContainer>
-          <ComposedChart data={filtered} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-            <defs>
-              <linearGradient id="aiEqGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
+          <ComposedChart data={filtered} margin={CHART_MARGIN}>
+            <AreaGradient id="aiEqGrad" />
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="var(--line)" />
             <XAxis
-              dataKey="date" stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false}
+              dataKey="date" {...axisProps}
               tickFormatter={(v) => new Date(v).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}
             />
-            <YAxis domain={[Math.max(0, minE - pad), maxE + pad]} hide />
-            <Tooltip
-              contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--r)", boxShadow: "var(--shadow-pop)", fontSize: 13 }}
-              itemStyle={{ color: "var(--text-1)", fontWeight: 600 }}
-              formatter={(value, name) => [inr(value), name === "total_equity" ? "AI Portfolio" : "NIFTY 50"]}
-              labelFormatter={(label) => fmtDate(label)}
+            {/* Axis shown, not hidden. An equity curve without a scale asks the
+                reader to trust the shape; the numbers are the point. */}
+            <YAxis
+              {...axisProps}
+              width={62}
+              domain={[Math.max(0, minE - pad), maxE + pad]}
+              tickFormatter={(v) => compactNum(v)}
+              tick={{ fontVariantNumeric: "tabular-nums" }}
             />
-            <Area type="monotone" dataKey="total_equity" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#aiEqGrad)" dot={false} activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--surface)", strokeWidth: 2 }} />
-            <Line type="monotone" dataKey="nifty_equity" stroke="var(--warn)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: "var(--warn)", stroke: "var(--surface)", strokeWidth: 2 }} />
+            <BaselineRule y={baseline} label="capital" />
+            <Tooltip
+              cursor={{ stroke: "var(--line-strong)", strokeDasharray: "3 3" }}
+              content={<CompareTooltip series={EQUITY_SERIES} format={inr} labelFormat={fmtDate} />}
+            />
+            <Area
+              type="monotone" dataKey="total_equity" stroke="var(--accent)" strokeWidth={2}
+              fillOpacity={1} fill="url(#aiEqGrad)" dot={false}
+              activeDot={{ r: 4, fill: "var(--accent)", stroke: "var(--surface)", strokeWidth: 2 }}
+            />
+            <Line
+              type="monotone" dataKey="nifty_equity" stroke="var(--warn)" strokeWidth={1.5}
+              strokeDasharray="4 3" dot={false}
+              activeDot={{ r: 3, fill: "var(--warn)", stroke: "var(--surface)", strokeWidth: 2 }}
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
