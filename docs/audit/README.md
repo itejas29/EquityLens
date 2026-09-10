@@ -193,6 +193,23 @@ unmet. **A defect behind a feature flag is an armed defect, not a fixed one.**
 
 ---
 
+## The safety net was itself verified
+
+`.github/workflows/backend-tests.yml` now guards all of the above, so it was
+run end to end from a clean virtualenv against a fresh Postgres — every step in
+sequence, with the exact environment the workflow declares:
+
+```
+pip install -r requirements-dev.txt   ->  exit 0
+python -m pytest -q                   ->  223 passed in 48.92s
+alembic upgrade head (from empty)     ->  ... -> b7e3a91c5d24, exit 0
+docker build .                        ->  exit 0
+```
+
+223 rather than 222 because the Postgres service makes the concurrent-buy
+row-lock test runnable — the one guarding the ₹400,240 defect, which cannot run
+on SQLite.
+
 ## Assessment
 
 The engineering is now in reasonable shape: 207 tests where there were 2, CI
