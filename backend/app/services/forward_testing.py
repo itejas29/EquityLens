@@ -266,6 +266,26 @@ def compute_track_record(db: Session) -> dict:
         matched = [(r, n) for r, n in pairs if n is not None]
         avg = sum(rets) / len(rets)
         avg_nifty = (sum(n for _, n in matched) / len(matched)) if matched else None
+
+        # THE EDGE IS A MEAN OF PER-SIGNAL DIFFERENCES, not a difference of two
+        # means taken over different samples.
+        #
+        # This used to be `avg - avg_nifty`, where `avg` covered every signal
+        # with a return and `avg_nifty` covered only those that ALSO had a
+        # NIFTY return. When those sets differ, the subtraction is not an edge —
+        # it is the gap between two unrelated averages, reported as the app's
+        # headline credibility figure.
+        #
+        # Checked against production on 2026-09-10 and the sets are currently
+        # identical (140/140 at 1d, 109/109 at 5d, 72/72 at 10d), so the number
+        # on the page today is right. This is a LATENT defect, not an active
+        # one. It becomes active the first time a NIFTY close is missing for one
+        # window while the stock's return is computable — and _nifty_closes
+        # fetches ^NSEI live and already documents dropping a NaN close for the
+        # still-forming session, so that is a matter of time rather than of
+        # chance.
+        edge = (sum(r - n for r, n in matched) / len(matched)) if matched else None
+
         horizons.append({
             "horizon_days": h,
             "sample": len(rets),
@@ -275,7 +295,11 @@ def compute_track_record(db: Session) -> dict:
             # The number that matters: excess over simply holding the index for
             # the same days. A positive average return in a rising market is not
             # evidence of anything on its own.
-            "edge_vs_nifty_pct": round(avg - avg_nifty, 2) if avg_nifty is not None else None,
+            "edge_vs_nifty_pct": round(edge, 2) if edge is not None else None,
+            # How many signals the edge is actually computed over. Equal to
+            # `sample` unless a NIFTY window was unavailable, and reported so a
+            # reader can see when it is not.
+            "edge_sample": len(matched),
             "win_rate_pct": round(100 * sum(1 for r in rets if r > 0) / len(rets), 1),
             "beat_nifty_rate_pct": round(100 * sum(1 for r, n in matched if r > n) / len(matched), 1) if matched else None,
         })

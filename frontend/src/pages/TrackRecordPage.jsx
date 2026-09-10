@@ -129,6 +129,16 @@ export default function TrackRecordPage() {
                         <td className="r num" style={{ color: "var(--text-3)" }}>{pct(h.avg_nifty_return_pct)}</td>
                         <td className={`r num ${tone(h.edge_vs_nifty_pct)}`} style={{ fontWeight: 700 }}>
                           {pct(h.edge_vs_nifty_pct)}
+                          {/* The edge is a mean of per-signal differences, so it can
+                              only be computed for signals that also have a NIFTY
+                              window. Normally that is all of them; when it is not,
+                              say so rather than let the count in the Signals column
+                              stand for a smaller sample. */}
+                          {h.edge_sample != null && h.edge_sample !== h.sample && (
+                            <span style={{ fontSize: 10.5, color: "var(--warn)", marginLeft: 6, fontWeight: 500 }}>
+                              n={h.edge_sample}
+                            </span>
+                          )}
                         </td>
                         <td className="r num">{h.win_rate_pct == null ? "—" : `${h.win_rate_pct}%`}</td>
                         <td className="r num">{h.beat_nifty_rate_pct == null ? "—" : `${h.beat_nifty_rate_pct}%`}</td>
@@ -143,7 +153,10 @@ export default function TrackRecordPage() {
               maxWidth: 760, lineHeight: 1.7,
             }}>
               <strong>Edge</strong> is the column that matters: return in excess of simply holding
-              the index for the same days. A positive average return during a rising market is not
+              the index for the same days. It is the average of each signal's own
+              difference against NIFTY, not the gap between two separately averaged
+              columns — those coincide only while every signal has a NIFTY window,
+              and an <span className="num">n=</span> marker appears when one does not. A positive average return during a rising market is not
               evidence of skill on its own, and a negative one during a falling market is not
               proof of its absence — which is why the benchmark is measured over each signal's own
               window rather than a fixed period.
