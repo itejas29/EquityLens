@@ -188,6 +188,27 @@ def set_market_regime_cache(as_of: str, value: dict) -> None:
     _set_json(market_regime_key(as_of), value, TTL_MARKET_REGIME)
 
 
+# ── Methodology / due-diligence surface ──
+
+# Public read path whose integrity scan walks the whole price history. 15
+# minutes is far shorter than anything on the page changes (a phase result
+# never; the universe daily; the track record nightly) and long enough that
+# the scan cannot be used to load the database.
+TTL_METHODOLOGY = 900
+
+
+def methodology_key(version: str) -> str:
+    return f"cache:methodology:{version}"
+
+
+def get_methodology_cache(version: str) -> dict | None:
+    return _get_json(methodology_key(version))
+
+
+def set_methodology_cache(version: str, value: dict) -> None:
+    _set_json(methodology_key(version), value, TTL_METHODOLOGY)
+
+
 def live_prices_key() -> str:
     return "live:prices"
 

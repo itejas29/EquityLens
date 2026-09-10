@@ -139,7 +139,19 @@
   color: #fff;
 }
 
-.el .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
+/* Scrolls inside its own box rather than pushing the document wide.
+   Thirteen top-level links total 1,189px against a 1,200px bar that also holds
+   a logo and a search field, so the nav was overflowing before the Methodology
+   link was added — measured at 1,078px without it. The overflow was escaping to
+   the document, giving every page a horizontal scrollbar and a pale gutter down
+   the right where the dark surfaces stopped. min-width:0 is what actually lets a
+   flex child shrink below its content; overflow-x alone does nothing without it. */
+.el .nav-links {
+  display: flex; align-items: center; gap: 2px; flex: 1;
+  min-width: 0; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+}
+.el .nav-links::-webkit-scrollbar { display: none; }
+.el .nav-link { flex: 0 0 auto; }
 
 .el .nav-link {
   position: relative;

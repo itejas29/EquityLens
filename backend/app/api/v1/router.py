@@ -7,6 +7,7 @@ from app.api.v1 import (
     daily_signals,
     health,
     market,
+    methodology,
     outlook,
     paper,
     portfolio,
@@ -22,6 +23,7 @@ api_router.include_router(auth.router)
 api_router.include_router(stocks.router)
 api_router.include_router(daily_signals.router)
 api_router.include_router(market.router)
+api_router.include_router(methodology.router)
 api_router.include_router(outlook.router)
 api_router.include_router(recommendations.scoring_router)
 api_router.include_router(recommendations.recommendations_router)
