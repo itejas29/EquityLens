@@ -1,0 +1,45 @@
+2026-09-10 16:28:20,630 INFO Experiment lock acquired: phase21_quality_momentum (pid 1)
+2026-09-10 16:28:20,652 INFO pool: 567 stocks; each fold draws the point-in-time top 500 by liquidity
+2026-09-10 16:30:17,450 INFO Fold  1 bull         NIFTY    7.04%  control  -13.48%  lowvol   -3.36%  lowdd   -6.12%  both50   -5.08%  both70    2.11%
+2026-09-10 16:32:32,235 INFO Fold  2 bull         NIFTY    5.10%  control  -17.36%  lowvol   -3.93%  lowdd   -5.94%  both50   -6.15%  both70   -4.87%
+2026-09-10 16:35:05,528 INFO Fold  3 sideways     NIFTY   -1.34%  control  -17.03%  lowvol   -6.57%  lowdd  -11.51%  both50   -6.57%  both70   -0.84%
+2026-09-10 16:38:21,847 INFO Fold  4 bear         NIFTY  -24.53%  control   -6.86%  lowvol    8.29%  lowdd   -3.23%  both50    8.82%  both70    1.98%
+2026-09-10 16:41:58,506 INFO Fold  5 strong bull  NIFTY   33.44%  control   41.47%  lowvol    7.91%  lowdd   20.15%  both50    7.65%  both70    4.64%
+2026-09-10 16:45:59,283 INFO Fold  6 strong bull  NIFTY   29.21%  control   37.57%  lowvol   27.32%  lowdd   20.41%  both50   13.80%  both70   15.13%
+2026-09-10 16:50:24,375 INFO Fold  7 strong bull  NIFTY   20.26%  control   27.20%  lowvol   33.57%  lowdd   55.67%  both50   41.06%  both70   10.92%
+2026-09-10 16:55:20,821 INFO Fold  8 correction   NIFTY   -3.93%  control   18.58%  lowvol    5.45%  lowdd   -7.02%  both50    1.11%  both70   -1.82%
+2026-09-10 17:00:46,106 INFO Fold  9 sideways     NIFTY    0.61%  control   -9.87%  lowvol    3.08%  lowdd   12.31%  both50    1.99%  both70    1.88%
+2026-09-10 17:06:39,660 INFO Fold 10 sideways     NIFTY   -0.42%  control  -16.37%  lowvol  -13.97%  lowdd   -9.61%  both50  -11.61%  both70  -12.95%
+2026-09-10 17:13:00,411 INFO Fold 11 strong bull  NIFTY   15.83%  control   58.51%  lowvol   28.01%  lowdd   29.02%  both50   25.50%  both70   20.09%
+2026-09-10 17:19:48,138 INFO Fold 12 strong bull  NIFTY   12.31%  control   19.06%  lowvol   20.35%  lowdd   -0.40%  both50   27.66%  both70   24.48%
+2026-09-10 17:27:08,543 INFO Fold 13 strong bull  NIFTY   17.21%  control   15.32%  lowvol   10.13%  lowdd   18.53%  both50   10.22%  both70    3.34%
+2026-09-10 17:35:00,217 INFO Fold 14 correction   NIFTY   -9.98%  control    6.33%  lowvol  -12.11%  lowdd   -1.34%  both50   -9.02%  both70  -15.06%
+2026-09-10 17:43:06,075 INFO Fold 15 bull         NIFTY    7.05%  control   10.00%  lowvol   17.18%  lowdd   18.63%  both50   10.51%  both70    3.57%
+2026-09-10 17:51:29,783 INFO Fold 16 correction   NIFTY   -8.28%  control   -8.18%  lowvol   -7.45%  lowdd    3.88%  both50   -4.00%  both70   -4.21%
+2026-09-10 17:51:29,785 INFO Experiment lock released: phase21_quality_momentum
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/pathlib.py", line 1311, in mkdir
+    os.mkdir(self, mode)
+FileNotFoundError: [Errno 2] No such file or directory: '/docs/experiments/phase21_quality_momentum'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/pathlib.py", line 1311, in mkdir
+    os.mkdir(self, mode)
+FileNotFoundError: [Errno 2] No such file or directory: '/docs/experiments'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/scripts/phase21_quality_momentum.py", line 237, in <module>
+    main()
+  File "/app/scripts/phase21_quality_momentum.py", line 214, in main
+    OUT.mkdir(parents=True, exist_ok=True)
+  File "/usr/local/lib/python3.12/pathlib.py", line 1315, in mkdir
+    self.parent.mkdir(parents=True, exist_ok=True)
+  File "/usr/local/lib/python3.12/pathlib.py", line 1315, in mkdir
+    self.parent.mkdir(parents=True, exist_ok=True)
+  File "/usr/local/lib/python3.12/pathlib.py", line 1311, in mkdir
+    os.mkdir(self, mode)
+PermissionError: [Errno 13] Permission denied: '/docs'
