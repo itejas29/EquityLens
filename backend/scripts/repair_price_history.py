@@ -40,7 +40,7 @@ from app.models.stock import Stock
 from app.services.incremental import _drop_unsettled_session, _normalise_df
 from app.services.indicators import compute_indicators, fetch_benchmark_df, load_price_history_df
 from app.services.ingestion import upsert_indicators, upsert_price_history
-from app.services.market_data import download_batch_with_retry, fetch_price_history
+from app.services.market_data import download_batch_with_retry, fetch_price_history, ticker_frame
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 log = logging.getLogger("repair")
@@ -79,7 +79,7 @@ def repair_date(db, day: dt.date, apply: bool) -> set[int]:
 
         for s, t in zip(chunk, tickers):
             try:
-                df = raw[t] if len(tickers) > 1 else raw
+                df = ticker_frame(raw, t)
             except (KeyError, IndexError):
                 missing += 1
                 continue

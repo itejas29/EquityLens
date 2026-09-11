@@ -73,7 +73,7 @@ def _download_batch(symbols: list[str], period: str) -> dict[str, pd.DataFrame]:
     a run over thousands of symbols.
     """
     tickers = [f"{s}.NS" for s in symbols]
-    from app.services.market_data import download_batch_with_retry
+    from app.services.market_data import download_batch_with_retry, ticker_frame
     try:
         raw = download_batch_with_retry(
             tickers=tickers,
@@ -89,7 +89,7 @@ def _download_batch(symbols: list[str], period: str) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     for symbol, ticker in zip(symbols, tickers):
         try:
-            df = raw[ticker] if len(tickers) > 1 else raw
+            df = ticker_frame(raw, ticker)
             if df is None or df.empty:
                 continue
             df = df.dropna(subset=["Close"])

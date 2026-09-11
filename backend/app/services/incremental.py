@@ -230,7 +230,7 @@ def _download_incremental_batch(
     tickers = [f"{s}.NS" for s in symbols]
 
     try:
-        from app.services.market_data import download_batch_with_retry
+        from app.services.market_data import download_batch_with_retry, ticker_frame
         raw = download_batch_with_retry(
             tickers=tickers,
             start=start_date.isoformat(),
@@ -246,7 +246,7 @@ def _download_incremental_batch(
     out: dict[str, pd.DataFrame] = {}
     for symbol, ticker in zip(symbols, tickers):
         try:
-            df = raw[ticker] if len(tickers) > 1 else raw
+            df = ticker_frame(raw, ticker)
             if df is None or df.empty:
                 continue
             df = df.dropna(subset=["Close"])
@@ -459,7 +459,7 @@ def _download_full_batch(symbols: list[str], period: str = HISTORY_PERIOD) -> di
         return {}
 
     tickers = [f"{s}.NS" for s in symbols]
-    from app.services.market_data import download_batch_with_retry
+    from app.services.market_data import download_batch_with_retry, ticker_frame
     try:
         raw = download_batch_with_retry(
             tickers=tickers,
@@ -475,7 +475,7 @@ def _download_full_batch(symbols: list[str], period: str = HISTORY_PERIOD) -> di
     out: dict[str, pd.DataFrame] = {}
     for symbol, ticker in zip(symbols, tickers):
         try:
-            df = raw[ticker] if len(tickers) > 1 else raw
+            df = ticker_frame(raw, ticker)
             if df is not None and not df.empty:
                 df = df.dropna(subset=["Close"])
                 if not df.empty:

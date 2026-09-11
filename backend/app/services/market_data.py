@@ -106,6 +106,33 @@ def download_batch_with_retry(tickers: list[str], **kwargs) -> pd.DataFrame | di
     raise last_exc
 
 
+def ticker_frame(raw, ticker: str) -> pd.DataFrame | None:
+    """One ticker's OHLCV frame out of a yf.download(group_by="ticker") result.
+
+    Every caller used to do `raw[ticker] if len(tickers) > 1 else raw`,
+    assuming a single-ticker download comes back with flat columns. On
+    yfinance 1.6 it does not: one ticker still returns ticker-level MultiIndex
+    columns, so `raw` was a MultiIndex frame, `df["Close"]` raised KeyError,
+    the caller swallowed it, and the symbol was reported as NOT_FOUND.
+
+    That silently broke every automatic split repair. A restatement re-pull is
+    almost always a batch of ONE symbol. Found when PGIL went 2:1 on
+    2026-09-11: the detector fired correctly, queued the re-pull, and the
+    re-pull failed as "no data returned". Reproduced on the production image:
+    _download_full_batch(["PGIL"]) -> {}, _download_full_batch(["PGIL","TCS"])
+    -> both present.
+
+    Handles both shapes, so it is correct on either yfinance behaviour.
+    """
+    if raw is None or getattr(raw, "empty", True):
+        return None
+    if isinstance(raw.columns, pd.MultiIndex):
+        if ticker not in raw.columns.get_level_values(0):
+            return None
+        return raw[ticker]
+    return raw
+
+
 
 def fetch_price_history(symbol: str, period: str = "2y") -> pd.DataFrame:
     nse_symbol = _to_nse_symbol(symbol)

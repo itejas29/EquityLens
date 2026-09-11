@@ -299,6 +299,8 @@ def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
     if not symbols:
         return {}
 
+    from app.services.market_data import ticker_frame
+
     nse = [_yahoo_ticker(s) for s in symbols]
     result: dict = {}
 
@@ -320,7 +322,7 @@ def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
     for sym in symbols:
         ticker = _yahoo_ticker(sym)
         try:
-            df = raw[ticker] if len(nse) > 1 else raw
+            df = ticker_frame(raw, ticker)
             if df is None or df.empty:
                 continue
             df = df.dropna(subset=["Close"])

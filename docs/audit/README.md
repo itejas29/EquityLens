@@ -169,6 +169,17 @@ dated off 2026-08-25) rest on those bars. The signals stand as published;
 rewriting a dated call is the one thing the forward track record cannot
 survive. [unsettled-session-bars.md](unsettled-session-bars.md)
 
+### 17. Automatic split repair never worked on a single symbol — HIGH, fixed
+
+The restatement detector fired correctly on PGIL's 2:1 split (2026-09-11),
+queued a full re-pull, and the re-pull reported the symbol NOT_FOUND. yfinance
+1.6 returns MultiIndex columns even for a single ticker, and all five batch
+downloaders assumed flat, so a batch of one always came back empty. A
+restatement re-pull is almost always a batch of one, so the self-healing path
+had never worked. It would also have re-pulled only 10y and stranded 18 bars on
+the old basis; re-pulls now use `period="max"`.
+[single-ticker-downloads.md](single-ticker-downloads.md)
+
 ## Checked and found sound
 
 - **`_capture_ratios`** — Phase 19's downside-capture conclusion (154–196%)
