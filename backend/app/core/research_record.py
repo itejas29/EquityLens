@@ -93,6 +93,20 @@ PHASES: tuple[Phase, ...] = (
         ),
         source="docs/experiments/phase20_holding_period",
     ),
+    Phase(
+        phase="Phase 21",
+        question="Do quality filters improve momentum?",
+        verdict="REFUTED",
+        detail=(
+            "Price-derived quality (low volatility, shallow drawdown) filtered "
+            "before the momentum rank. No arm beat the control on mean return: "
+            "the best, lowdd_50, was -0.72pp. The filters cut the worst fold "
+            "from -17.36% to -11.51% but gave up the big up-folds. ROE and EPS "
+            "growth were rejected before any run: they exist only as today's "
+            "snapshot, so a 2016 fold would have been using 2026 data."
+        ),
+        source="docs/experiments/phase21_quality_momentum",
+    ),
 )
 
 # The live configuration's own measured result, from the Phase 20 sweep where

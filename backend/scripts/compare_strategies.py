@@ -29,13 +29,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.database import SessionLocal  # noqa: E402
 from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 START = date(2021, 10, 1)
 END = date(2026, 8, 1)
 CAPITAL = 500_000
-OUT_DIR = Path(__file__).resolve().parents[2] / "docs" / "experiments"
+OUT_DIR = experiment_dir()
 
 BASE = StrategyParams.for_appetite("moderate")
 

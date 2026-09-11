@@ -34,6 +34,7 @@ from app.models.stock import Stock  # noqa: E402
 from app.services.backtest import _load_all_price_frames  # noqa: E402
 from app.services.backtest_scoring import compute_point_in_time_universe  # noqa: E402
 from app.services.market_data import fetch_price_history  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("phase14")
@@ -42,7 +43,7 @@ START = date(2018, 1, 1)
 END = date(2026, 3, 1)          # leaves room for the 20-day forward window
 HORIZONS = (5, 10, 20)
 MOM_LONG, MOM_SHORT = 252, 21   # 12-month minus 1-month
-OUT_DIR = Path(__file__).resolve().parents[2] / "docs" / "experiments" / "phase14_alpha"
+OUT_DIR = experiment_dir("phase14_alpha")
 
 
 def momentum_score(frame: pd.DataFrame) -> float | None:

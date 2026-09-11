@@ -68,6 +68,7 @@ from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.models.price_history import PriceHistory  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("p21")
@@ -76,7 +77,7 @@ log = logging.getLogger("p21")
 START, END, CAPITAL = date(2016, 10, 1), date(2026, 8, 1), 500_000
 TRAIN, TEST, ROLL = 18, 6, 6
 UNIVERSE_SIZE = 500
-OUT = Path(__file__).resolve().parents[2] / "docs" / "experiments" / "phase21_quality_momentum"
+OUT = experiment_dir("phase21_quality_momentum")
 
 FROZEN = dict(atr_stop_multiplier=4.0, use_support_stop=False, cash_buffer_pct=0.0,
               use_regime_filter=True, bull_exposure=1.0, bear_exposure=0.25,
@@ -211,9 +212,6 @@ def main() -> None:
         }
     rec["summary"] = summary
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "results.json").write_text(json.dumps(rec, indent=2, default=str))
-
     log.info("=" * 108)
     log.info("PHASE 21 — QUALITY-MOMENTUM (%d folds, point-in-time top %d universe)",
              len(F), UNIVERSE_SIZE)
@@ -228,6 +226,10 @@ def main() -> None:
     log.info("")
     log.info("  An arm counts as a finding only if vs CONTROL is positive AND vs NIFTY is")
     log.info("  positive. Beating the control while still trailing the index is not an edge.")
+    # Written AFTER the summary is logged, not before. The 2026-09-10 run wrote
+    # first, the write raised, and the summary table (Sharpe, drawdown, trades)
+    # was never printed — only the per-fold returns survived, in the log.
+    (OUT / "results.json").write_text(json.dumps(rec, indent=2, default=str))
     log.info("wrote %s", OUT / "results.json")
     db.close()
 

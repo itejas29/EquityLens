@@ -41,6 +41,7 @@ from app.core.experiment_lock import experiment_lock  # noqa: E402
 from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("p18")
@@ -48,7 +49,7 @@ log = logging.getLogger("p18")
 # Identical to Phase 16/17 so baselines are directly comparable.
 START, END, CAPITAL = date(2016, 10, 1), date(2026, 8, 1), 500_000
 TRAIN, TEST, ROLL = 18, 6, 6
-OUT = Path(__file__).resolve().parents[2] / "docs" / "experiments" / "phase18_universe_size"
+OUT = experiment_dir("phase18_universe_size")
 
 # The deepest arm under test. The DB must actually hold at least this many
 # active stocks or the deep arms silently collapse onto the shallow ones.

@@ -70,6 +70,7 @@ from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.core.universe_config import HISTORY_PERIOD  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
 from app.services.optimizer import objective  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("phase13")
@@ -81,7 +82,7 @@ TRAIN_MONTHS = 18
 TEST_MONTHS = 6
 ROLL_MONTHS = 6  # == TEST_MONTHS, so OOS windows tile without overlap
 
-OUT_DIR = Path(__file__).resolve().parents[2] / "docs" / "experiments" / "phase13_recovery_lag"
+OUT_DIR = experiment_dir("phase13_recovery_lag")
 
 BASE = StrategyParams.for_appetite("moderate")
 

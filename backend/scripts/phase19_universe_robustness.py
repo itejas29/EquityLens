@@ -72,6 +72,7 @@ from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.models.price_history import PriceHistory  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
+from app.core.experiment_paths import experiment_dir  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("p19")
@@ -81,7 +82,7 @@ START, END, CAPITAL = date(2016, 10, 1), date(2026, 8, 1), 500_000
 TRAIN, TEST, ROLL = 18, 6, 6
 UNIVERSE_SIZE = 1000
 ARM_SIZE = 500
-OUT = Path(__file__).resolve().parents[2] / "docs" / "experiments" / "phase19_universe_robustness"
+OUT = experiment_dir("phase19_universe_robustness")
 
 FROZEN = dict(atr_stop_multiplier=4.0, use_support_stop=False, cash_buffer_pct=0.0,
               use_regime_filter=True, bull_exposure=1.0, bear_exposure=0.25,
