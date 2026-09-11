@@ -160,3 +160,34 @@ def test_partial_bar_never_reaches_the_database(db_session):
               db_session.query(PriceHistory).filter(PriceHistory.stock_id == stock.id).all()}
     assert date(2026, 8, 25) not in stored, "an in-progress bar was written as a daily close"
     assert stored[date(2026, 8, 24)] == 100.0
+
+
+def test_restatement_repull_fetches_max_history(db_session):
+    """A restated symbol must be re-pulled at period="max", not HISTORY_PERIOD.
+    A 10y pull can start after the stored series does; upsert leaves the older
+    bars on the pre-split basis and the gap moves instead of disappearing."""
+    import pandas as pd
+
+    stock = Stock(symbol="PGIL", is_active=True)
+    db_session.add(stock)
+    db_session.commit()
+    db_session.add(PriceHistory(stock_id=stock.id, date=date(2026, 8, 21), open=200,
+                                high=205, low=195, close=200.0, volume=5000))
+    db_session.commit()
+
+    # Provider now serves 08-21 at half the stored price: a 2:1 restatement.
+    restated = pd.DataFrame({
+        "Date": ["2026-08-21", "2026-08-24"],
+        "Open": [100, 101], "High": [103, 104], "Low": [98, 99],
+        "Close": [100.0, 101.0], "Volume": [10000, 9000],
+    }).set_index("Date")
+
+    with patch("app.services.incremental._download_incremental_batch", return_value={"PGIL": restated}), \
+         patch("app.services.incremental.fetch_benchmark_df", return_value=pd.DataFrame()), \
+         patch("app.services.incremental._download_full_batch", return_value={}) as full:
+        from app.services.incremental import incremental_price_update
+        result = incremental_price_update(db_session, today=date(2026, 8, 25))
+
+    assert result.restated == 1
+    assert full.call_count == 1
+    assert full.call_args.args[1] == "max"

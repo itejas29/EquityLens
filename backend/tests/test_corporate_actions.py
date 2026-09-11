@@ -165,9 +165,14 @@ def test_a_restated_symbol_is_repulled_and_not_appended_to(db_session, monkeypat
         )}
 
     repulled = []
+    periods = []
     monkeypatch.setattr(incremental, "_download_incremental_batch", fake_download)
-    monkeypatch.setattr(incremental, "_process_full_pulls",
-                        lambda db, stocks, bench, res: repulled.extend(s.symbol for s in stocks))
+
+    def fake_full_pulls(db, stocks, bench, res, period=incremental.HISTORY_PERIOD):
+        repulled.extend(s.symbol for s in stocks)
+        periods.append(period)
+
+    monkeypatch.setattr(incremental, "_process_full_pulls", fake_full_pulls)
 
     result = incremental.IncrementalResult()
     incremental._process_incremental_pulls(
@@ -176,6 +181,10 @@ def test_a_restated_symbol_is_repulled_and_not_appended_to(db_session, monkeypat
     )
 
     assert repulled == ["SPLIT"]
+    # The whole stored series must be replaced, so the re-pull reaches back as
+    # far as the provider goes, not the 10y HISTORY_PERIOD. See
+    # RESTATEMENT_REPULL_PERIOD.
+    assert periods == ["max"]
     assert result.restated == 1
     assert result.results[0].status.value == "CORPORATE_ACTION"
     # Nothing was written: the old basis is still on disk, untouched, waiting

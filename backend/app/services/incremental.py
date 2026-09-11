@@ -94,6 +94,16 @@ RESTATEMENT_TOLERANCE_PCT = 1.0
 # settle it. The nightly ingest runs at 20:00 IST and is unaffected.
 DAILY_BAR_SETTLED_IST = (16, 0)
 
+# Period for re-pulling a symbol whose history the provider restated. NOT
+# HISTORY_PERIOD: the stored series can start earlier than a fresh 10y pull
+# (TDPOWERSYS: stored from 2016-08-16, a 10y pull starts 2016-09-12), and
+# upsert only rewrites the dates it receives. The bars older than the pull stay
+# on the pre-restatement basis and the split gap just moves to where the two
+# meet. "max" reaches back far enough to cover the whole stored series. Found
+# when PGIL was restated on 2026-09-11 and this path would have left 18 bars
+# on the old basis.
+RESTATEMENT_REPULL_PERIOD = "max"
+
 
 @dataclass
 class SymbolResult:
@@ -376,8 +386,10 @@ def _process_full_pulls(
     stocks: list[Stock],
     benchmark_df: pd.DataFrame,
     result: IncrementalResult,
+    period: str = HISTORY_PERIOD,
 ) -> None:
-    """Full history pull for stocks with no stored data."""
+    """Full history pull — for stocks with no stored data, and (with
+    period=RESTATEMENT_REPULL_PERIOD) for stocks whose history was restated."""
     symbols = [s.symbol for s in stocks]
     symbol_to_stock = {s.symbol: s for s in stocks}
 
@@ -387,7 +399,7 @@ def _process_full_pulls(
         total_batches = (len(symbols) + DOWNLOAD_BATCH_SIZE - 1) // DOWNLOAD_BATCH_SIZE
 
         try:
-            frames = _download_full_batch(batch)
+            frames = _download_full_batch(batch, period)
         except Exception as exc:
             logger.error("pipeline.incremental.full_batch_failed batch=%d/%d error=%s", batch_num, total_batches, exc)
             for sym in batch:
@@ -441,7 +453,7 @@ def _process_full_pulls(
         )
 
 
-def _download_full_batch(symbols: list[str]) -> dict[str, pd.DataFrame]:
+def _download_full_batch(symbols: list[str], period: str = HISTORY_PERIOD) -> dict[str, pd.DataFrame]:
     """Batched yfinance download using period (for initial full pulls)."""
     if not symbols:
         return {}
@@ -451,7 +463,7 @@ def _download_full_batch(symbols: list[str]) -> dict[str, pd.DataFrame]:
     try:
         raw = download_batch_with_retry(
             tickers=tickers,
-            period=HISTORY_PERIOD,
+            period=period,
             interval="1d",
             group_by="ticker",
             auto_adjust=False,
@@ -634,4 +646,4 @@ def _process_incremental_pulls(
             "pipeline.incremental.repull count=%d symbols=%s",
             len(needs_repull), ", ".join(s.symbol for s in needs_repull),
         )
-        _process_full_pulls(db, needs_repull, benchmark_df, result)
+        _process_full_pulls(db, needs_repull, benchmark_df, result, period=RESTATEMENT_REPULL_PERIOD)
