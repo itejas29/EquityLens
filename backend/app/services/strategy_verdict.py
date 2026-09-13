@@ -237,11 +237,17 @@ def edge_checks(evidence: dict) -> tuple[list[Check], dict]:
             # Which fold moves the mean most when removed — named, because a
             # conclusion that one fold decides is weaker than it looks either way.
             figures["fold_whose_removal_raises_mean_most"] = folds[best].get("fold", best + 1)
+            # Every fold whose removal ALONE flips the sign of the mean. One such
+            # fold means the headline sign is fragile; several mean it is decided
+            # by whichever outlier happens to be in the window.
+            full = mean(excess)
+            flips = [folds[i].get("fold", i + 1) for i in range(n) if (loo[i] > 0) != (full > 0)]
+            figures["folds_whose_removal_alone_flips_the_mean"] = flips
             ok = loo[worst] > 0
             checks.append(Check("not_dependent_on_single_fold", "PASS" if ok else "FAIL", True,
                                 f"dropping any one fold leaves mean excess between {_fmt(loo[worst])} and "
-                                f"{_fmt(loo[best])}pp (dropping fold {figures['fold_whose_removal_raises_mean_most']} "
-                                f"gives {_fmt(loo[best])}pp); PASS requires it positive after dropping every "
+                                f"{_fmt(loo[best])}pp; removing fold(s) {flips or 'none'} alone flips the sign of "
+                                f"the {_fmt(full)}pp mean; PASS requires it positive after dropping every "
                                 f"fold in turn", src))
 
         dd_gap = figures["strategy_mean_max_drawdown_pct"] - figures["benchmark_mean_max_drawdown_pct"]

@@ -147,6 +147,17 @@ def test_a_result_carried_by_one_fold_fails_the_single_fold_check():
     assert _status(checks)["not_dependent_on_single_fold"] == "FAIL"
     assert figures["leave_one_out_mean_excess_min_pp"] < 0
     assert figures["fold_whose_removal_raises_mean_most"] != 1  # removing fold 1 LOWERS the mean
+    # mean +9.25 is positive; only removing fold 1 makes it negative
+    assert figures["folds_whose_removal_alone_flips_the_mean"] == [1]
+
+
+def test_every_fold_that_alone_flips_a_negative_mean_is_named():
+    # excess -20, -18, 1, 2, 3: mean -6.4; drop fold 1 -> -3.0, drop fold 2 -> -3.5 (no flip)
+    _, fig = sv.edge_checks(_evidence([-20, -18, 1, 2, 3], [0, 0, 0, 0, 0]))
+    assert fig["folds_whose_removal_alone_flips_the_mean"] == []
+    # excess -20, -19, 6, 6, 6, 6: mean -2.5; drop fold 1 -> +1.0, drop fold 2 -> +0.8
+    _, fig = sv.edge_checks(_evidence([-20, -19, 6, 6, 6, 6], [0, 0, 0, 0, 0, 0]))
+    assert fig["folds_whose_removal_alone_flips_the_mean"] == [1, 2]
 
 
 def test_drawdown_tolerance_is_relative_to_the_benchmark():
