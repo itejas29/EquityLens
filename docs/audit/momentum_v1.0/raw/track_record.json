@@ -1,0 +1,69 @@
+{
+  "captured_at": "2026-09-13T05:48:45.654111+00:00",
+  "source": "GET https://52-35-164-63.sslip.io/api/v1/daily-signals/track-record",
+  "note": "Figures as published by the API, which rounds to 2 decimals.",
+  "payload": {
+    "signals_published": 184,
+    "signals_evaluated": 184,
+    "first_signal_date": "2026-08-14",
+    "last_signal_date": "2026-09-11",
+    "target_hit": 3,
+    "stop_hit": 17,
+    "resolved": 20,
+    "horizons": [
+      {
+        "horizon_days": 1,
+        "sample": 156,
+        "sufficient_sample": true,
+        "avg_return_pct": -0.42,
+        "avg_nifty_return_pct": -0.2,
+        "edge_vs_nifty_pct": -0.22,
+        "edge_sample": 156,
+        "win_rate_pct": 49.4,
+        "beat_nifty_rate_pct": 52.6,
+        "avg_return_from_entry_pct": -1.89,
+        "edge_from_entry_pct": -1.68
+      },
+      {
+        "horizon_days": 5,
+        "sample": 125,
+        "sufficient_sample": true,
+        "avg_return_pct": -1.27,
+        "avg_nifty_return_pct": -0.9,
+        "edge_vs_nifty_pct": -0.37,
+        "edge_sample": 125,
+        "win_rate_pct": 48.8,
+        "beat_nifty_rate_pct": 56.0,
+        "avg_return_from_entry_pct": -2.58,
+        "edge_from_entry_pct": -1.68
+      },
+      {
+        "horizon_days": 10,
+        "sample": 88,
+        "sufficient_sample": true,
+        "avg_return_pct": -0.8,
+        "avg_nifty_return_pct": -1.76,
+        "edge_vs_nifty_pct": 0.95,
+        "edge_sample": 88,
+        "win_rate_pct": 46.6,
+        "beat_nifty_rate_pct": 56.8,
+        "avg_return_from_entry_pct": -1.76,
+        "edge_from_entry_pct": -0.0
+      },
+      {
+        "horizon_days": 20,
+        "sample": 8,
+        "sufficient_sample": false,
+        "avg_return_pct": -2.2,
+        "avg_nifty_return_pct": -3.97,
+        "edge_vs_nifty_pct": 1.78,
+        "edge_sample": 8,
+        "win_rate_pct": 37.5,
+        "beat_nifty_rate_pct": 50.0,
+        "avg_return_from_entry_pct": -2.2,
+        "edge_from_entry_pct": 1.78
+      }
+    ],
+    "min_sample_for_horizon": 30
+  }
+}
