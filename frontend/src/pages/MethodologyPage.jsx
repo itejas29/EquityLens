@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiClient, apiErrorMessage } from "../api/client";
 import { ErrorState, LoadingState } from "../components/ui/Primitives";
+import StrategyVerdictPanel from "../components/StrategyVerdictPanel";
 
 /* ============================================================================
    Methodology — the due-diligence surface.
@@ -145,6 +146,10 @@ export default function MethodologyPage() {
           numbers would be evidence of nothing, because that is what every such page shows.
         </p>
       </div>
+
+      {/* ---- the machine-generated verdict: measurement, edge, promotion ---- */}
+      <Rule label="Strategy status — generated from explicit checks" />
+      <StrategyVerdictPanel />
 
       {/* ---- the verdict ---- */}
       <Rule label="Verdict on the strategy under test" />

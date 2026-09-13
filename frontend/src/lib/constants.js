@@ -13,3 +13,7 @@ export const SECTORS = [
   "Communication Services",
   "Real Estate",
 ];
+
+// Public repository. The audit reports live in docs/, which is not in the backend
+// image, so the verdict panel links to them here by their repository path.
+export const REPO_URL = "https://github.com/itejas29/EquityLens";

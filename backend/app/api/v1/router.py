@@ -13,6 +13,7 @@ from app.api.v1 import (
     portfolio,
     recommendations,
     stocks,
+    strategy_verdict,
     watchlist,
     ws,
 )
@@ -24,6 +25,7 @@ api_router.include_router(stocks.router)
 api_router.include_router(daily_signals.router)
 api_router.include_router(market.router)
 api_router.include_router(methodology.router)
+api_router.include_router(strategy_verdict.router)
 api_router.include_router(outlook.router)
 api_router.include_router(recommendations.scoring_router)
 api_router.include_router(recommendations.recommendations_router)

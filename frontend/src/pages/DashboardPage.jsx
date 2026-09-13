@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { apiClient } from "../api/client";
 import { SkeletonTable } from "../components/Skeleton";
 import Sparkline from "../components/Sparkline";
+import StrategyVerdictPanel from "../components/StrategyVerdictPanel";
 
 /**
  * Explore — the market read for the current session.
@@ -60,10 +61,17 @@ export default function DashboardPage() {
     };
   }, []);
 
-  if (loading) return <SkeletonTable rows={5} columns={4} />;
+  // The verdict renders in every branch: whether the strategy under test works
+  // should not disappear because an unrelated market-data call is slow or down.
+  if (loading) return <div><StrategyVerdictPanel compact /><SkeletonTable rows={5} columns={4} /></div>;
 
   if (error || !overview) {
-    return <div className="card"><p className="muted">{error || "No market data available."}</p></div>;
+    return (
+      <div>
+        <StrategyVerdictPanel compact />
+        <div className="card"><p className="muted">{error || "No market data available."}</p></div>
+      </div>
+    );
   }
 
   const session = overview.as_of
@@ -76,6 +84,7 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <StrategyVerdictPanel compact />
       <div style={{ marginBottom: 40 }}>
         <h2 style={{ fontSize: 20, fontWeight: 500, color: "var(--text)", margin: "0 0 4px" }}>
           Most traded on NSE
