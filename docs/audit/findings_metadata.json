@@ -1,0 +1,163 @@
+{
+  "_about": "Per-finding fields the bug impact register needs that docs/audit/README.md does not record in structured form. Titles, severities and statuses are NOT duplicated here: scripts/build_audit_closure.py reads those from the README headings. Where a fact was not measured, it says so rather than guessing.",
+  "1": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/paper_trading.py buy/sell (read-check-write on cash)",
+    "affected_period": "Paper trading from launch until the row-lock fix",
+    "historical_outputs_changed": "No. The 400,240.00 figure is from a reproduction on Postgres 16, not a recorded production incident. The live AI paper ledger reconciles to 0.00 across 12 trades (exported 2026-09-13), so no lost debit is present in it.",
+    "regression_tests": ["tests/test_concurrency_and_atomicity.py"],
+    "disposition": "Fixed"
+  },
+  "2": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/backtest.py universe membership (Stock.is_active)",
+    "affected_period": "Every published backtest",
+    "historical_outputs_changed": "No. Published phases remain survivors-only by design. The size of the bias has not been measured (scripts/phase21_survivorship.py not yet run).",
+    "regression_tests": ["tests/test_backtest_survivorship.py"],
+    "disposition": "Measured as present, not fixed by design; quantification open"
+  },
+  "3": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "api/v1 write endpoints; /auth/login",
+    "affected_period": "Until the fix was deployed (2026-09-10)",
+    "historical_outputs_changed": "No stored outputs affected",
+    "regression_tests": ["tests/test_api_hardening.py"],
+    "disposition": "Fixed"
+  },
+  "4": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/incremental.py gap-fill; stored price_history",
+    "affected_period": "Nine flagged symbols; TDPOWERSYS on the stale basis from 2026-08-21",
+    "historical_outputs_changed": "Yes. TDPOWERSYS's full history was re-pulled on 2026-09-11 (2,478 bars corrected). Signals and backtests computed before the repair were not re-run.",
+    "regression_tests": ["tests/test_corporate_actions.py", "tests/test_price_integrity.py"],
+    "disposition": "Fixed; history repaired"
+  },
+  "5": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/ai_trading.py cycle transaction",
+    "affected_period": "AI trading cycles until the fix",
+    "historical_outputs_changed": "Not measured",
+    "regression_tests": ["tests/test_concurrency_and_atomicity.py"],
+    "disposition": "Fixed"
+  },
+  "6": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "levels / risk:reward reporting",
+    "affected_period": "Published risk:reward figures until the fix",
+    "historical_outputs_changed": "Reporting corrected going forward. Frozen published signals were not rewritten.",
+    "regression_tests": ["tests/test_levels_risk_reward.py"],
+    "disposition": "Fixed"
+  },
+  "7": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/forward_testing.py track record",
+    "affected_period": "Track Record figures until the fix",
+    "historical_outputs_changed": "Yes. The track record is now measured from an obtainable entry; earlier figures were restated.",
+    "regression_tests": ["tests/test_track_record.py"],
+    "disposition": "Fixed"
+  },
+  "8": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "app/ml train/test split and features",
+    "affected_period": "ML training and evaluation runs before the fix",
+    "historical_outputs_changed": "No. Published ML metrics predate the fix and are stale; the model is not served (ROC-AUC below the gate). Retrain open.",
+    "regression_tests": ["tests/test_ml_split.py"],
+    "disposition": "Fixed; retrain open"
+  },
+  "9": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "paper trading money fields",
+    "affected_period": "Paper ledger arithmetic until the move to Decimal",
+    "historical_outputs_changed": "Not recorded. The live ledger now reconciles exactly.",
+    "regression_tests": ["tests/test_money_ledger.py", "tests/test_saved_portfolio.py"],
+    "disposition": "Fixed"
+  },
+  "10": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "Redis, psycopg2 and yfinance calls",
+    "affected_period": "Runtime availability until the fix",
+    "historical_outputs_changed": "No stored outputs affected",
+    "regression_tests": ["tests/test_api_hardening.py", "tests/test_market_regime_cache.py", "tests/test_ai_trading_cadence.py"],
+    "disposition": "Fixed"
+  },
+  "11": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "core/scheduler.py heavy-job mutex",
+    "affected_period": "Scheduled heavy jobs until the fix",
+    "historical_outputs_changed": "No stored outputs affected",
+    "regression_tests": ["tests/test_scheduler_heavy_job.py"],
+    "disposition": "Fixed"
+  },
+  "12": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "AI trading risk checks",
+    "affected_period": "Risk checks until the fix",
+    "historical_outputs_changed": "No stored outputs affected",
+    "regression_tests": ["tests/test_ai_trading_risk_visibility.py"],
+    "disposition": "Fixed"
+  },
+  "13": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/backtest.py Sortino ratio",
+    "affected_period": "Sortino in three published tables",
+    "historical_outputs_changed": "No. The tables were not re-run; no prose conclusion depended on Sortino.",
+    "regression_tests": ["tests/test_backtest_metrics.py"],
+    "disposition": "Fixed; tables not re-run"
+  },
+  "14": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "services/notifications.py",
+    "affected_period": "Telegram notifications until the fix",
+    "historical_outputs_changed": "No stored outputs affected",
+    "regression_tests": ["tests/test_notifications.py"],
+    "disposition": "Fixed"
+  },
+  "15": {
+    "discovered": "2026-09-09 to 2026-09-10 (audit window)",
+    "component": "app/ml inference cache",
+    "affected_period": "Dormant behind the ML serving gate",
+    "historical_outputs_changed": "No. Never served.",
+    "regression_tests": ["tests/test_ml_inference_cache.py"],
+    "disposition": "Fixed"
+  },
+  "16": {
+    "discovered": "2026-09-10",
+    "component": "services/incremental.py (no settled-session guard)",
+    "affected_period": "The 2026-08-25 session bars; signals dated 2026-08-25 and 2026-08-26",
+    "historical_outputs_changed": "Yes. 432 closes re-fetched and indicators recomputed for 433 stocks on 2026-09-11. The 16 published signals stand unchanged, and the AI paper account's first cohort, traded on 2026-08-25, stands as traded.",
+    "regression_tests": ["tests/test_incremental.py"],
+    "disposition": "Fixed; history repaired"
+  },
+  "17": {
+    "discovered": "2026-09-11",
+    "component": "market_data batch download (single-ticker MultiIndex); restatement re-pull period",
+    "affected_period": "The automatic split-repair path since it was added; PGIL on 2026-09-11",
+    "historical_outputs_changed": "Yes. PGIL's full history re-pulled on 2026-09-11 (2,490 bars corrected).",
+    "regression_tests": ["tests/test_ticker_frame.py", "tests/test_incremental.py"],
+    "disposition": "Fixed; history repaired"
+  },
+  "18": {
+    "discovered": "2026-09-13",
+    "component": "services/backtest_scoring.py indicator cache",
+    "affected_period": "Phase 19 (every arm after current_top500). phase21_survivorship would have been affected; it has not been run.",
+    "historical_outputs_changed": "Yes. Phase 19 is withdrawn in the research record. Not re-run.",
+    "regression_tests": ["tests/test_indicator_cache.py"],
+    "disposition": "Fixed; Phase 19 withdrawn pending re-run"
+  },
+  "19": {
+    "discovered": "2026-09-13",
+    "component": "services/backtest.py stop exit",
+    "affected_period": "Every published backtest with stop exits",
+    "historical_outputs_changed": "No. Published backtests have not been re-run.",
+    "regression_tests": ["tests/test_backtest_execution.py (strict xfail)"],
+    "disposition": "Open: known defect, measurement FAIL until fixed and re-run"
+  },
+  "20": {
+    "discovered": "2026-09-13",
+    "component": "services/backtest.py entry timing",
+    "affected_period": "Every published backtest",
+    "historical_outputs_changed": "No. Published backtests have not been re-run.",
+    "regression_tests": ["tests/test_backtest_execution.py (strict xfail)"],
+    "disposition": "Open: known defect, measurement FAIL until fixed and re-run"
+  }
+}

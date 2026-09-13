@@ -2,6 +2,8 @@
 
 Conducted 2026-09-09 to 2026-09-10 against commit `ba84aaa`.
 26 commits. Tests 2 → 207. Backend 13,688 lines; test suite 3,579 lines.
+Extended 2026-09-11 (#16–17) and 2026-09-13 (#18–20, and the momentum_v1.0
+verdict: [momentum_v1.0/](momentum_v1.0/)).
 
 Every finding below was **reproduced before it was fixed** and, where the fix
 was non-obvious, **verified failing on the pre-fix code**. Numbers quoted are
@@ -14,10 +16,11 @@ report look more productive than the audit was.
 ## The one sentence that matters
 
 **The strategy has no measurable edge, and every correction made during this
-audit moved the evidence further in that direction.** The live track record now
-reads −1.60 / −2.23 / −1.18 percentage points against NIFTY at 1, 5 and 10 days
-when measured from a price a buyer could actually obtain, with 3 targets hit
-against 14 stops. Phases 17–20 reached the same conclusion from backtests. Two
+audit moved the evidence further in that direction.** As of 2026-09-10 the live
+track record read −1.60 / −2.23 / −1.18 percentage points against NIFTY at 1, 5
+and 10 days when measured from a price a buyer could actually obtain, with 3
+targets hit against 14 stops. Current figures, and the machine-generated
+verdict they feed, are in [momentum_v1.0/](momentum_v1.0/). Phases 17–20 reached the same conclusion from backtests. Two
 independent methods agreeing is a real result; it is just not a favourable one.
 
 What the audit improved is not the strategy. It is whether the platform can be
@@ -180,11 +183,46 @@ had never worked. It would also have re-pulled only 10y and stranded 18 bars on
 the old basis; re-pulls now use `period="max"`.
 [single-ticker-downloads.md](single-ticker-downloads.md)
 
+### 18. A shared indicator cache contaminated Phase 19 — HIGH, fixed
+
+The backtest's indicator cache was keyed on the date alone and held whichever
+universe first populated it. Phase 19 ran seven memberships through one cache
+with `current_top500` first, so every later arm — point-in-time, random, bottom
+— could only score the names it shared with `current_top500`. Found because its
+`pit_top500` arm disagrees with Phase 20's identically-configured live arm in
+**8 of 16 folds, by up to 11pp**, with NIFTY identical to the cent.
+
+Fixed so a polluted cache gives exactly what a fresh one does, in both
+directions (`tests/test_indicator_cache.py`). **Phase 19 is withdrawn**, not
+deleted. Checked and unaffected: Phase 16 (narrower arms after wider — the
+leaked names were never selectable), Phase 18 (one cache per universe), Phases
+20 and 21 (one universe across arms).
+
+### 19. Gap-down stops fill at the stop price — HIGH, open
+
+`if low <= pos.stop_loss: exit_price = pos.stop_loss`, even when the session
+opened below the stop. On the regression fixture, a 30% gap-down is booked as a
+**4.76% loss** — stopped out at ₹269.43 on a day that opened at ₹202.79. It
+overstates every published backtest's stop exits. Encoded as a strict xfail in
+`tests/test_backtest_execution.py`; left unfixed because fixing it changes every
+backtest the engine has produced, which is a research decision with a re-run
+attached.
+
+### 20. Entries fill on the signal bar — HIGH, open
+
+On a rebalance day the snapshot is scored on bars up to and including that
+day's close, and the position is opened the same day at `entry_high` derived
+from that close. A signal computed from a close cannot be traded at that close;
+the live system publishes at 09:15 IST and fills next session. **Direction of
+bias not established**: the timing is unexecutable, but `entry_high` sits above
+the close, which is pessimistic on price. Strict xfail, same reasoning as #19.
+
 ## Checked and found sound
 
-- **`_capture_ratios`** — Phase 19's downside-capture conclusion (154–196%)
-  rests on it. Ten known-answer tests, all passing first run. **The conclusion
-  stands.**
+- **`_capture_ratios`** — ten known-answer tests, all passing first run. The
+  function is sound. Phase 19, whose downside-capture figures (154–196%) used
+  it, was later withdrawn for an unrelated measurement defect (#18), so those
+  figures are not evidence until it is re-run.
 - **`_trade_metrics`**, CAGR, Sharpe, max drawdown, Calmar and their guards.
 - **yfinance retry/backoff** — already has a 30s timeout and correct rate-limit
   classification. The unbounded-wait problem did not apply here.
@@ -202,18 +240,18 @@ the old basis; re-pulls now use `period="max"`.
 
 ## Open, and owned by the user
 
-1. **Nothing here is deployed.** 26 commits including an Alembic migration that
-   runs on container start. Every fix protecting live money is theoretical
-   until it ships.
-2. **TDPOWERSYS needs a one-off full re-pull.** The detector prevents
-   recurrence; it does not repair history already stored.
-3. **Quantify survivorship** — one fold run with and without
-   `include_inactive`. Needs the lab instance.
+1. ~~Nothing here is deployed.~~ Deployed 2026-09-10 and 2026-09-11.
+2. ~~TDPOWERSYS needs a one-off full re-pull.~~ Done 2026-09-11 with
+   `scripts/repair_price_history.py` (and PGIL, #17).
+3. **Quantify survivorship** — `scripts/phase21_survivorship.py`, not yet run.
+   Needs a lab seeded with the 1,000-stock pool.
 4. **Retrain the ML model.** Published metrics predate both leak fixes and the
    stored artifact was fitted on 31 features against a current default of 25.
-5. **Re-run the phases** if the Sortino/benchmark-friction/universe corrections
-   are wanted in the published tables — one run with all of them, so the
-   numbers stay comparable.
+5. **Fix the two execution defects (#19, #20) and re-run the phases** on the
+   fixed engine — with the Sortino, benchmark-friction and universe corrections
+   in the same run, so the numbers stay comparable. Phase 19 must be re-run
+   before any of its conclusions are used again. Until #19 and #20 are fixed,
+   the momentum_v1.0 verdict's measurement stays FAIL by construction.
 
 ---
 
