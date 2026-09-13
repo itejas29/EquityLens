@@ -83,15 +83,19 @@ function Control({ title, body, evidence }) {
   );
 }
 
+// Explicit per value. The previous version coloured everything that was not
+// REFUTED green, so a WITHDRAWN result would have rendered as a favourable one.
+const VERDICT_TONE = { REFUTED: "down", HELD: "up" };
+
 function Verdict({ v }) {
-  const refuted = v === "REFUTED";
+  const t = VERDICT_TONE[v] || "warn";
   return (
     <span style={{
       display: "inline-block", padding: "2px 7px", borderRadius: "var(--r-sm)",
       fontSize: 10, fontWeight: 800, letterSpacing: "0.07em",
-      background: refuted ? "var(--down-soft)" : "var(--up-soft)",
-      color: refuted ? "var(--down)" : "var(--up)",
-      border: `1px solid ${refuted ? "var(--down)" : "var(--up)"}33`,
+      background: `var(--${t}-soft)`,
+      color: `var(--${t})`,
+      border: `1px solid var(--${t})`,
       whiteSpace: "nowrap",
     }}>{v}</span>
   );
@@ -118,6 +122,7 @@ export default function MethodologyPage() {
   const { strategy, protocol, universe, integrity, ml_gate, live_arm, phases, track_record } = d;
   const horizons = (track_record?.horizons || []).filter((h) => h.sample > 0);
   const refuted = phases.filter((p) => p.verdict === "REFUTED").length;
+  const withdrawn = phases.filter((p) => p.verdict === "WITHDRAWN").length;
 
   return (
     <div className="page" style={{ maxWidth: 1120 }}>
@@ -322,9 +327,13 @@ export default function MethodologyPage() {
         </div>
       </div>
       <p style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.68, margin: "14px 0 0", maxWidth: 820 }}>
-        Four of six programmes refuted the hypothesis they were built to test, including two
-        that removed a feature already shipped. That ratio is the product. An engine that
-        only ever confirmed would not be measuring anything.
+        {/* Counted from the record, not written as prose: the sentence this
+            replaced said "four of six" and was already stale once a seventh
+            phase was added. */}
+        {refuted} of {phases.length} programmes refuted the hypothesis they were built to test.
+        {withdrawn > 0 && ` ${withdrawn} ${withdrawn === 1 ? "result was" : "results were"} withdrawn
+        after the engine's own measurement was found contaminated — kept in the table, not deleted.`}
+        {" "}An engine that only ever confirmed would not be measuring anything.
       </p>
 
       <div style={{

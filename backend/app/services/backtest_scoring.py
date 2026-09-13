@@ -133,11 +133,30 @@ def compute_point_in_time_universe(
     """
     cache_key = as_of
     if indicator_cache is not None and cache_key in indicator_cache:
-        base = indicator_cache[cache_key]
+        cached = indicator_cache[cache_key]
+        # The entry holds whichever universe FIRST populated this date, and the
+        # key is the date alone. Used as-is, a later arm with a different
+        # membership could only ever score the stocks it shared with that first
+        # arm: its own names were silently unscoreable. Phase 19 ran seven
+        # memberships through one cache with `current_top500` first, so every
+        # other arm — point-in-time, random, bottom — traded roughly its overlap
+        # with current_top500. Its pit_top500 arm disagrees with Phase 20's
+        # identically-configured live arm in 8 of 16 folds, by up to 11pp.
+        #
+        # compute_indicator_snapshot is strictly per-stock (each entry depends
+        # only on that stock's frame and the benchmark), so computing the
+        # missing stocks and merging them in gives exactly what a fresh
+        # computation would. Restricting to the current universe keeps a wider
+        # cached entry from leaking extra names into cross-sectional
+        # percentiles. tests/test_indicator_cache.py pins both directions.
+        missing = {sid: df for sid, df in bounded_frames.items() if sid not in cached}
+        if missing:
+            cached.update(compute_indicator_snapshot(missing, bounded_benchmark_df))
+        base = {sid: cached[sid] for sid in bounded_frames if sid in cached}
     else:
         base = compute_indicator_snapshot(bounded_frames, bounded_benchmark_df)
         if indicator_cache is not None:
-            indicator_cache[cache_key] = base
+            indicator_cache[cache_key] = dict(base)
 
     if not base:
         return {}

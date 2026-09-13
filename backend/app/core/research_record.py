@@ -9,7 +9,10 @@ claim can be checked against the raw JSON in the repo.
 
 Nothing here is a projection, a target or a rounded-up figure. Every number was
 produced by a walk-forward run that is committed and re-runnable. Where a phase
-refuted the hypothesis it was testing, that is what it says.
+refuted the hypothesis it was testing, that is what it says. Where a phase's own
+measurement was later found invalid, its verdict is WITHDRAWN and the row stays:
+deleting it would hide that the engine once reported something it could not
+support.
 """
 
 from dataclasses import dataclass
@@ -74,11 +77,17 @@ PHASES: tuple[Phase, ...] = (
     Phase(
         phase="Phase 19",
         question="Does the edge survive arbitrary universe construction?",
-        verdict="REFUTED",
+        verdict="WITHDRAWN",
         detail=(
-            "Spread across constructions 4.51pp against a mean edge of +0.47pp. "
-            "Random membership beat NIFTY by +0.26pp — as well as the ranked "
-            "universes. Drawdown worse than NIFTY, downside capture 154-196%."
+            "Withdrawn 2026-09-13: its measurement was contaminated. All seven "
+            "memberships shared one indicator cache keyed on date alone, and "
+            "current_top500 ran first, so every later arm could only score the "
+            "names it shared with current_top500 — the random and point-in-time "
+            "arms were not the universes they claimed. Its pit_top500 arm "
+            "disagrees with Phase 20's identically-configured live arm in 8 of 16 "
+            "folds, by up to 11pp. The published figures (4.51pp spread, random "
+            "membership +0.26pp over NIFTY) are not supported until it is re-run "
+            "on the fixed engine."
         ),
         source="docs/experiments/phase19_universe_robustness",
     ),
