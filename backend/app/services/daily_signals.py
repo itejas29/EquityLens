@@ -362,8 +362,17 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     close to inverted at short horizons; it is retained elsewhere for the
     research view but must not drive published signals.
     """
+    # A shortlist dated `as_of` is a pre-market call, so it may only see sessions
+    # that closed before that date. Every price/indicator read below is bounded
+    # to `data_through`, never `as_of`: once the 20:00 ingest has stored the
+    # day's own bar, a late or manual run would otherwise rank and price the
+    # call off the close of the very session it claims to precede. One calendar
+    # day back rather than "the previous trading day", so holidays need no
+    # exchange calendar — every bar strictly before `as_of` is still included.
+    data_through = as_of - timedelta(days=1)
+
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.is_active == True).all()}  # noqa: E712
-    momentum = _momentum_scores(db, list(stocks.keys()), as_of)
+    momentum = _momentum_scores(db, list(stocks.keys()), data_through)
     if not momentum:
         logger.warning("No momentum scores computable as of %s", as_of)
         return []
@@ -387,12 +396,12 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     # Wilder ATR and a 20-day support lookback; a 252-trading-day window is
     # far past the point where the recursive ATR has converged (the weight of
     # a bar N periods back decays as (13/14)^N, so ~1e-4 by 120 bars).
-    lookback_start = as_of - timedelta(days=_calendar_days_for(V1.momentum_long_days))
+    lookback_start = data_through - timedelta(days=_calendar_days_for(V1.momentum_long_days))
     ohlc_rows = (
         db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.open,
                   PriceHistory.high, PriceHistory.low, PriceHistory.close)
         .filter(PriceHistory.stock_id.in_(passing_ids),
-                PriceHistory.date <= as_of,
+                PriceHistory.date <= data_through,
                 PriceHistory.date >= lookback_start)
         .order_by(PriceHistory.stock_id, PriceHistory.date)
         .all()
@@ -409,7 +418,7 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     # far the largest of the three memory offenders here.
     indicator_rows = (
         db.query(Indicator)
-        .filter(Indicator.stock_id.in_(passing_ids))
+        .filter(Indicator.stock_id.in_(passing_ids), Indicator.date <= data_through)
         .distinct(Indicator.stock_id)
         .order_by(Indicator.stock_id, Indicator.date.desc())
         .all()

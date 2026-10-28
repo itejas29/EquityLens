@@ -47,7 +47,12 @@ from app.core.cache import (
     set_session_snapshot,
 )
 from app.core.ai_trading_config import RUN_HOUR as AI_TRADING_RUN_HOUR, RUN_MINUTE as AI_TRADING_RUN_MINUTE
-from app.core.daily_signals_config import GENERATION_HOUR, GENERATION_MINUTE
+from app.core.daily_signals_config import (
+    GENERATION_HOUR,
+    GENERATION_MINUTE,
+    PUBLISH_DEADLINE_HOUR,
+    PUBLISH_DEADLINE_MINUTE,
+)
 from app.core.fast_quotes_config import (
     BACKOFF_AFTER_FAILURES,
     BACKOFF_SECONDS,
@@ -557,6 +562,15 @@ async def fast_quote_loop() -> None:
 # --- Daily pre-market shortlist (signal generation) ---
 
 
+def _now_ist() -> datetime:
+    """The loop's clock, as a seam so tests can place it at a given time."""
+    return datetime.now(IST)
+
+
+def _past_publish_deadline(now: datetime) -> bool:
+    return (now.hour, now.minute) >= (PUBLISH_DEADLINE_HOUR, PUBLISH_DEADLINE_MINUTE)
+
+
 def _has_signals_for(as_of: date_type) -> bool:
     """Checked against the DB rather than tracked in memory, so a restart part
     way through the day does not republish a shortlist that already exists.
@@ -623,15 +637,20 @@ async def daily_signals_loop() -> None:
     GATED on PipelineRun: signals will not be published if the price pipeline
     has not run completely for the previous trading day. If data is missing,
     it attempts a bounded incremental recovery.
+
+    BOUNDED by a publish deadline: catch-up stops at the NSE close. A day that
+    is still unpublished then stays unpublished — the gap in the record is the
+    honest outcome, the same reason signals are never backfilled.
     """
     logger.info("Daily signal loop started — publishes at %02d:%02d IST", GENERATION_HOUR, GENERATION_MINUTE)
     recovery_attempted_for_date = None
     last_skip_logged_date = None
+    window_closed_logged_date = None
 
     while True:
         await _idle("daily-signals", 60)
         try:
-            now = datetime.now(IST)
+            now = _now_ist()
             if now.weekday() >= 5:  # NSE is shut; the page falls back to Friday's list
                 continue
             if (now.hour, now.minute) < (GENERATION_HOUR, GENERATION_MINUTE):
@@ -642,21 +661,29 @@ async def daily_signals_loop() -> None:
             if already:
                 continue
 
+            # Checked before the recovery attempt as well as before publishing:
+            # after the close there is nothing a recovery could legitimately
+            # enable, and running one then only spends a heavy-job slot.
+            if _past_publish_deadline(now):
+                if window_closed_logged_date != today:
+                    logger.error(
+                        "pipeline.signals.skipped date=%s reason=publish_window_closed deadline=%02d:%02d",
+                        today, PUBLISH_DEADLINE_HOUR, PUBLISH_DEADLINE_MINUTE,
+                    )
+                    window_closed_logged_date = today
+                continue
+
             yesterday = today - timedelta(days=1)
             while yesterday.weekday() >= 5:
                 yesterday -= timedelta(days=1)
 
-            # Gate: check that we have a reasonably fresh and complete pipeline run.
+            # Gate: the previous session's run must be complete. A run dated
+            # TODAY is deliberately not an acceptable substitute (it used to
+            # be): today's run is the 20:00 ingest of today's own bars, so
+            # accepting it meant publishing a "pre-market" list after the close.
             pipeline_run = await asyncio.get_event_loop().run_in_executor(
                 _executor, _get_latest_pipeline_run, yesterday
             )
-            # Also check if there's a complete run for 'today' (edge case manual trigger)
-            if pipeline_run is None or pipeline_run.status != "complete":
-                today_run = await asyncio.get_event_loop().run_in_executor(
-                    _executor, _get_latest_pipeline_run, today
-                )
-                if today_run and today_run.status == "complete":
-                    pipeline_run = today_run
 
             # Bounded recovery attempt
             if pipeline_run is None or pipeline_run.status != "complete":
@@ -681,7 +708,13 @@ async def daily_signals_loop() -> None:
                     last_skip_logged_date = today
                 continue
 
+            # Re-checked: a recovery begun just before the deadline can finish
+            # after it, and waiting on the heavy-job lock can take longer still.
             async with _heavy_job("daily-signals"):
+                if _past_publish_deadline(_now_ist()):
+                    logger.error("pipeline.signals.skipped date=%s reason=publish_window_closed", today)
+                    window_closed_logged_date = today
+                    continue
                 count = await asyncio.get_event_loop().run_in_executor(_executor, _generate_signals, today)
             logger.info("pipeline.signals.published date=%s count=%d", today, count)
         except Exception as exc:

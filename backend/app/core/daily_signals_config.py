@@ -37,6 +37,16 @@ MAX_REFERENCE_AGE_DAYS = 7
 GENERATION_HOUR = 9
 GENERATION_MINUTE = 15
 
+# Last IST wall-clock time a day's shortlist may still be published by the
+# catch-up loop. 15:30 is the end of NSE's normal market: after it there is no
+# session left in which the call could be acted on, and once the 20:00 ingest
+# has run, the day's own bar is in the database. Before this deadline existed,
+# a day skipped at 09:15 was published at ~20:05 instead — 2026-09-15 and
+# 2026-10-22 both went out as "pre-market" calls dated the session they had
+# already seen close.
+PUBLISH_DEADLINE_HOUR = 15
+PUBLISH_DEADLINE_MINUTE = 30
+
 # --- Rationale thresholds ---------------------------------------------------
 # Bands used to turn a computed value into a plain-English clause. Chosen to
 # match the scoring engine's own bands so the wording never contradicts the

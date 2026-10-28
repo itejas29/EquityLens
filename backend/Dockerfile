@@ -28,6 +28,16 @@ RUN chown appuser:appuser /app
 
 USER appuser
 
+# Cap glibc's per-thread malloc arenas. By default glibc may create up to
+# 8 x cores arenas, and pandas work run from executor threads leaves freed
+# memory stranded in them rather than returned to the OS — RSS climbs while
+# the live heap does not. On EC2 the container went from ~0.3 GB to 1.46 GB in
+# the 7 days after the 2026-10-21 restart, and before that restart it had
+# spent weeks swap-thrashing (6.6 TB of block I/O, API unresponsive). The
+# periodic malloc_trim in core/memory_hygiene.py treats the symptom inside a
+# few hot loops; this bounds the arena count for the whole process.
+ENV MALLOC_ARENA_MAX=2
+
 EXPOSE 8000
 
 # /api/v1/health, not /health/pipeline: it checks DB and Redis reachability
