@@ -73,9 +73,10 @@ def main() -> None:
     db = SessionLocal()
     rec = {"experiment": "phase24_survivorship", "universes": {k: v for k, v in plan.items() if k != "folds"},
            "folds": []}
+    caches: dict[int, dict] = {}
     for p in plan["folds"]:
         te, tt = date.fromisoformat(p["test"][0]), date.fromisoformat(p["test"][1])
-        cache: dict = {}
+        cache = caches.setdefault(p["fold"], {})
         _, a = _run(db, p["A"], te, tt, cache)
         rb, b = _run(db, p["B"], te, tt, cache)
         rec["folds"].append({"fold": p["fold"], "test": p["test"], "benchmark": rb.benchmark_metrics,
@@ -99,7 +100,8 @@ def main() -> None:
             sens = []
             for p in plan["folds"]:
                 te, tt = date.fromisoformat(p["test"][0]), date.fromisoformat(p["test"][1])
-                _, b = _run(db, p["B"], te, tt, {})
+                # Same fold cache: it holds per-stock indicators, which sector does not touch.
+                _, b = _run(db, p["B"], te, tt, caches.get(p["fold"], {}))
                 sens.append({"fold": p["fold"], "B": b})
             rec["sensitivity"] = {"shared_sector": SHARED_SECTOR, "folds": sens}
         finally:
