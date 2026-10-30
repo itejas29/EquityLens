@@ -15,6 +15,7 @@ from app.core.security import get_current_user
 from app.models.daily_signal import DailySignal
 from app.models.stock import Stock
 from app.schemas.daily_signal import (
+    RealisticTrackRecordResponse,
     DailySignalResponse,
     DailySignalsResponse,
     GenerateDailySignalsResponse,
@@ -217,6 +218,22 @@ def get_track_record(db: Session = Depends(get_db)):
     from app.services.forward_testing import compute_track_record
 
     return compute_track_record(db)
+
+
+@router.get("/track-record/realistic", response_model=RealisticTrackRecordResponse)
+def get_realistic_track_record(db: Session = Depends(get_db)) -> RealisticTrackRecordResponse:
+    """The same calls, scored as a follower would have experienced them:
+    a fill that could have happened, costs deducted, one position per stock
+    instead of one per repeated signal, first-touch exits within 20 sessions,
+    and benchmarks over the exact holding window — including an equal-weight
+    basket of the whole universe, which separates stock selection from simply
+    owning smaller stocks. Days whose call could not have been followed as
+    published are scored separately and listed. Every rule is documented in
+    services/forward_scoring.py.
+    """
+    from app.services.forward_scoring import get_realistic_record
+
+    return RealisticTrackRecordResponse(**get_realistic_record(db))
 
 
 @router.get("/{symbol}")

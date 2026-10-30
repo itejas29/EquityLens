@@ -92,3 +92,95 @@ class MomentumLeadersResponse(BaseModel):
     date: date_type | None
     universe_size: int
     leaders: list[MomentumLeader]
+
+
+# --- Realistic forward record (services/forward_scoring.py) ------------------
+
+
+class BenchmarkComparison(BaseModel):
+    sample: int
+    mean_excess_pct: float | None = None
+    beat_rate_pct: float | None = None
+
+
+class ReturnStats(BaseModel):
+    sample: int
+    mean_net_return_pct: float | None = None
+    median_net_return_pct: float | None = None
+    win_rate_pct: float | None = None
+    # None when there was no losing trade to divide by — undefined, not infinite.
+    profit_factor: float | None = None
+
+
+class HorizonStats(ReturnStats):
+    horizon_sessions: int
+    vs: dict[str, BenchmarkComparison]
+
+
+class ManagedStats(ReturnStats):
+    exits: dict[str, int]
+    ambiguous_same_bar: int
+    still_open: int
+    mean_holding_sessions: float | None = None
+    vs: dict[str, BenchmarkComparison]
+
+
+class ExcursionStats(BaseModel):
+    sample: int
+    median_mae_pct: float | None = None
+    median_mfe_pct: float | None = None
+    reached_stop_pct: float | None = None
+    reached_target_pct: float | None = None
+
+
+class ExcessInterval(BaseModel):
+    positions: int
+    horizon_sessions: int | None = None
+    mean_excess_pct: float | None = None
+    ci95_low: float | None = None
+    ci95_high: float | None = None
+    weeks: int | None = None
+    excludes_zero: bool | None = None
+
+
+class PositionCounts(BaseModel):
+    opened: int
+    unique_stocks: int
+    calls_absorbed_into_open_positions: int
+    unfilled: dict[str, int]
+    fill_rate_pct: float | None = None
+    filled_at_open: int
+    filled_at_entry_high: int
+
+
+class RecordScore(BaseModel):
+    positions: PositionCounts
+    horizons: list[HorizonStats]
+    managed: ManagedStats
+    excursions: ExcursionStats
+    uncertainty: dict[str, ExcessInterval]
+
+
+class ExcludedDay(BaseModel):
+    date: date_type
+    flags: list[str]
+
+
+class RealisticTrackRecordResponse(BaseModel):
+    exit_rule: str
+    round_trip_cost_pct: float
+    max_hold_sessions: int
+    benchmarks: dict[str, str]
+    primary_benchmark: str
+    selection_control: str
+    first_call_date: date_type | None = None
+    last_call_date: date_type | None = None
+    published_days: int
+    published_calls: int
+    clean_days: int
+    clean_calls: int
+    excluded_days: list[ExcludedDay]
+    flag_counts: dict[str, int]
+    stale_reference_days: list[date_type]
+    clean: RecordScore
+    all_published: RecordScore

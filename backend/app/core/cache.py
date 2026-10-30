@@ -59,6 +59,10 @@ def _log_degraded(operation: str, key: str, exc: Exception, level: int = logging
 TTL_SCORED_UNIVERSE = 3600
 TTL_STOCK_DETAIL = 900
 TTL_BACKTEST = 86400
+# Keyed by a fingerprint of the data it was computed from (see
+# api/v1/daily_signals.py), so new data is a new key; the TTL only bounds how
+# long a superseded entry lingers.
+TTL_REALISTIC_RECORD = 36 * 3600
 
 
 def _get_json(key: str) -> Any | None:
@@ -291,3 +295,15 @@ def get_market_overview_cache(as_of: str, limit: int) -> dict | None:
 
 def set_market_overview_cache(as_of: str, limit: int, value: dict) -> None:
     _set_json(market_overview_key(as_of, limit), value, TTL_MARKET_OVERVIEW)
+
+
+def realistic_record_key(fingerprint: str) -> str:
+    return f"track_record:realistic:v1:{fingerprint}"
+
+
+def get_realistic_record_cache(fingerprint: str) -> dict | None:
+    return _get_json(realistic_record_key(fingerprint))
+
+
+def set_realistic_record_cache(fingerprint: str, value: dict) -> None:
+    _set_json(realistic_record_key(fingerprint), value, TTL_REALISTIC_RECORD)

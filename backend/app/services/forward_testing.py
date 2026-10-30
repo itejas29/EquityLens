@@ -156,6 +156,13 @@ def evaluate_signal_outcomes(db: Session, target_date: date_type) -> int:
             if start_idx + days < len(calendar):
                 eval_date = calendar[start_idx + days]
                 if eval_date in ph_closes and signal.date in nifty_closes and eval_date in nifty_closes:
+                    # KNOWN WINDOW MISMATCH, kept so stored outcomes stay on one
+                    # basis: the stock is measured from reference_close (the
+                    # session BEFORE signal.date) but NIFTY from signal.date's
+                    # close, so the stock's window is one session longer. The
+                    # realistic record (services/forward_scoring.py) measures
+                    # both over the identical holding window and is the one to
+                    # read for "did following the calls beat the index".
                     stk_ret = (ph_closes[eval_date] - float(signal.reference_close)) / float(signal.reference_close) * 100
                     nft_ret = (nifty_closes[eval_date] - nifty_closes[signal.date]) / nifty_closes[signal.date] * 100
                     return stk_ret, nft_ret

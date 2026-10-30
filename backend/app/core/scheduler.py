@@ -877,6 +877,16 @@ def _run_incremental_update(as_of: date_type) -> int:
         ]
         db.commit()
 
+        # After the run row is final — the record's cache key includes its
+        # finish time — so the first page view tonight is served, not computed.
+        try:
+            from app.services.forward_scoring import get_realistic_record
+
+            get_realistic_record(db)
+        except Exception as e:
+            logger.error("forward_scoring.warm_failed date=%s error=%s", as_of, e)
+            db.rollback()
+
         return result.succeeded
     except Exception:
         db.rollback()
