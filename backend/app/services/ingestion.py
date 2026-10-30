@@ -52,9 +52,11 @@ def is_no_trade_placeholder(open_, high, low, close, volume) -> bool:
     day look like a session. A real bar with a single traded price still has
     volume, so it is kept.
     """
-    if volume not in (None, 0) and not (isinstance(volume, float) and volume != volume):
+    # pd.isna, not `in (None, 0)`: a nullable-integer column hands back pd.NA,
+    # and `pd.NA == 0` has no truth value.
+    if not (pd.isna(volume) or volume == 0):
         return False
-    return open_ is not None and open_ == high == low == close
+    return not pd.isna(open_) and open_ == high == low == close
 
 
 def drop_no_trade_placeholders(history: pd.DataFrame) -> pd.DataFrame:

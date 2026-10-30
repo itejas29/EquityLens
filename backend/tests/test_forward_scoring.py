@@ -291,6 +291,10 @@ def test_no_trade_placeholders_are_dropped_before_storage():
     kept = drop_no_trade_placeholders(df)
     assert list(kept["date"]) == [SESSIONS[2], SESSIONS[3]]
 
+    nullable = df.astype({"volume": "Int64"}, errors="ignore").copy()
+    nullable["volume"] = pd.array([0, None, 250, 900], dtype="Int64")
+    assert list(drop_no_trade_placeholders(nullable)["date"]) == [SESSIONS[2], SESSIONS[3]]
+
 
 def test_a_holiday_filled_in_by_the_provider_is_neither_a_session_nor_a_fill(db_session):
     """2026-09-14 in production: NSE closed, 574 stocks carrying a flat,
