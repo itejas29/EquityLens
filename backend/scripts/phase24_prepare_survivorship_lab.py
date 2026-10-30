@@ -80,7 +80,13 @@ def load_eq_rows() -> pd.DataFrame:
     for i, f in enumerate(files, 1):
         d = date(int(f.stem[:4]), int(f.stem[4:6]), int(f.stem[6:8]))
         for r in parse_bhavcopy(f.read_bytes(), d):
-            if r.series == "EQ":
+            # Company shares only. NSE trades ETFs in the EQ series too
+            # (NIFTYBEES, GOLDBEES, LIQUIDBEES...), and their traded value wins
+            # them top-500 slots. An Indian ISIN says what a security is:
+            # INE for company equity, INF for mutual-fund units, ETFs included.
+            # Today's pool comes from NSE's equity list, which has no ETFs, so
+            # without this B would differ from A by more than survivorship.
+            if r.series == "EQ" and (r.isin or "").startswith("INE"):
                 rows.append((d, r.symbol, r.isin or "", float(r.open), float(r.high), float(r.low),
                              float(r.close), r.volume, float(r.traded_value)))
         if i % 250 == 0:
@@ -174,18 +180,24 @@ def main() -> None:
 
     fallback: list[str] = []  # listed today, but Yahoo has no history: NSE's own prices instead
     yahoo_symbols = {e: (info[e]["current_symbol"] or info[e]["last_symbol"]) for e in still_listed}
-    stored, failures = universe_mod._ingest_prices_batched(db, sorted(set(yahoo_symbols.values())))
+    have = {sym for (sym,) in db.query(Stock.symbol).filter(
+        Stock.symbol.in_(set(yahoo_symbols.values())), Stock.is_active == False).all()}  # noqa: E712
+    fetched, failures = universe_mod._ingest_prices_batched(
+        db, sorted(set(yahoo_symbols.values()) - have)) if set(yahoo_symbols.values()) - have else ({}, [])
+    stored = {**{sym: 0 for sym in have}, **fetched}
     log.info("Yahoo: %d stored, %d failed", len(stored), len(failures))
     for e, sym in yahoo_symbols.items():
         if sym in stored:
-            try:
-                st = upsert_stock(db, sym, fetch_stock_meta(sym))
-            except Exception:  # metadata is best-effort; prices are what matter
-                st = db.query(Stock).filter(Stock.symbol == sym).first()
+            st = db.query(Stock).filter(Stock.symbol == sym).first()
+            if sym not in have:
+                try:
+                    st = upsert_stock(db, sym, fetch_stock_meta(sym))
+                except Exception:  # metadata is best-effort; prices are what matter
+                    pass
+                time.sleep(0.9)
             st.is_active = False
             entity_stock[e] = st.id
             db.commit()
-            time.sleep(0.9)
         else:
             fallback.append(e)
     log.info("Yahoo metadata done; %d listed names fall back to bhavcopy prices", len(fallback))

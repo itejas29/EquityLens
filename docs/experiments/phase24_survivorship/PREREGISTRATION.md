@@ -66,4 +66,13 @@ eligible evidence for the verdict's `survivorship_free_confirmation` check.
 
 ## Changes after registration
 
-None yet.
+1. **2026-10-30, after building the universes, before any backtest ran: company
+   shares only.** The first build counted every NSE `EQ`-series security, and
+   NSE trades ETFs in that series too — NIFTYBEES, GOLDBEES, LIQUIDBEES,
+   CPSEETF, the Bharat Bond ETFs and others appeared among the "no longer
+   listed" names, with traded values high enough to take top-500 slots. Today's
+   pool is built from NSE's equity list, which has no ETFs, so universe B would
+   have differed from A by more than survivorship. Both universes now keep
+   only securities whose ISIN starts `INE` (company equity; mutual-fund units,
+   ETFs included, start `INF`). No backtest result existed when this was
+   changed.
