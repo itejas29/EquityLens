@@ -268,6 +268,11 @@ lower price. Every backtest before the fix understated V1.
    survivorship-free, V1's median excess over NIFTY 50 is −0.03pp.
 4. **Retrain the ML model.** Published metrics predate both leak fixes and the
    stored artifact was fitted on 31 features against a current default of 25.
+   Context since (Phase 25, 2026-10-31): a redesigned ML ranker was built and
+   tested on the survivorship-free bench. It was trained per fold, targets each
+   stock's rank within its universe, and uses price and volume features only.
+   It was the weakest of five rankings: median −2.05pp a fold against NIFTY 50,
+   below plain momentum. `docs/experiments/phase25_literature_candidates/FINDINGS.md`.
 5. ~~Fix the two execution defects (#19, #20)~~ Fixed 2026-10-30, and V1's
    folds re-run on the fixed engine (Phase 23's `v1_raw` arm), which the
    momentum_v1.0 verdict now uses. Still open: every other phase's numbers
