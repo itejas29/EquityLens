@@ -1,0 +1,759 @@
+{
+  "experiment": "phase23_normalized_momentum",
+  "pool": 1000,
+  "arms": [
+    "v1_raw"
+  ],
+  "costs": {
+    "default": [
+      0.0012,
+      0.0005
+    ]
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "test": [
+        "2018-04-01",
+        "2018-09-30"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -6.68,
+          "cagr_pct": -13.16,
+          "sharpe_ratio": -0.786,
+          "sortino_ratio": -1.078,
+          "max_drawdown_pct": -13.35,
+          "max_drawdown_duration_days": 46,
+          "annualised_volatility_pct": 22.62,
+          "calmar_ratio": -0.986,
+          "final_equity": 466580.53,
+          "num_trades": 27,
+          "win_rate_pct": 37.04,
+          "avg_win": 9585.53,
+          "avg_loss": -7615.37,
+          "profit_factor": 0.74,
+          "avg_holding_period_days": 59.7,
+          "avg_capital_deployed_pct": 88.94,
+          "total_transaction_costs": 1476.29,
+          "upside_capture_pct": 158.98,
+          "downside_capture_pct": 241.36,
+          "tracking_error_pct": 22.3,
+          "information_ratio": -0.461,
+          "days_in_bull_regime": 124,
+          "days_in_bear_regime": 1
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 7.04,
+        "cagr_pct": 14.89,
+        "sharpe_ratio": 0.778,
+        "sortino_ratio": 1.169,
+        "max_drawdown_pct": -6.88,
+        "max_drawdown_duration_days": 21,
+        "annualised_volatility_pct": 10.06,
+        "calmar_ratio": 2.163,
+        "final_equity": 535187.25
+      }
+    },
+    {
+      "fold": 2,
+      "test": [
+        "2018-09-30",
+        "2019-03-31"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -18.4,
+          "cagr_pct": -34.12,
+          "sharpe_ratio": -2.579,
+          "sortino_ratio": -3.282,
+          "max_drawdown_pct": -23.86,
+          "max_drawdown_duration_days": 119,
+          "annualised_volatility_pct": 18.46,
+          "calmar_ratio": -1.43,
+          "final_equity": 407988.73,
+          "num_trades": 31,
+          "win_rate_pct": 32.26,
+          "avg_win": 3483.15,
+          "avg_loss": -6051.74,
+          "profit_factor": 0.274,
+          "avg_holding_period_days": 42.3,
+          "avg_capital_deployed_pct": 67.86,
+          "total_transaction_costs": 1237.33,
+          "upside_capture_pct": 25.12,
+          "downside_capture_pct": 1660.52,
+          "tracking_error_pct": 8.37,
+          "information_ratio": -6.126,
+          "days_in_bull_regime": 55,
+          "days_in_bear_regime": 65
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 5.1,
+        "cagr_pct": 10.75,
+        "sharpe_ratio": 0.349,
+        "sortino_ratio": 0.497,
+        "max_drawdown_pct": -8.89,
+        "max_drawdown_duration_days": 85,
+        "annualised_volatility_pct": 14.62,
+        "calmar_ratio": 1.21,
+        "final_equity": 525512.58
+      }
+    },
+    {
+      "fold": 3,
+      "test": [
+        "2019-03-31",
+        "2019-09-29"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -8.45,
+          "cagr_pct": -16.48,
+          "sharpe_ratio": -1.374,
+          "sortino_ratio": -1.793,
+          "max_drawdown_pct": -15.76,
+          "max_drawdown_duration_days": 120,
+          "annualised_volatility_pct": 17.0,
+          "calmar_ratio": -1.045,
+          "final_equity": 457768.73,
+          "num_trades": 28,
+          "win_rate_pct": 35.71,
+          "avg_win": 7160.42,
+          "avg_loss": -6328.88,
+          "profit_factor": 0.629,
+          "avg_holding_period_days": 45.2,
+          "avg_capital_deployed_pct": 64.55,
+          "total_transaction_costs": 1272.34,
+          "upside_capture_pct": 129.02,
+          "downside_capture_pct": 70.12,
+          "tracking_error_pct": 7.87,
+          "information_ratio": 1.269,
+          "days_in_bull_regime": 87,
+          "days_in_bear_regime": 34
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": -1.34,
+        "cagr_pct": -2.72,
+        "sharpe_ratio": -0.476,
+        "sortino_ratio": -0.773,
+        "max_drawdown_pct": -11.45,
+        "max_drawdown_duration_days": 79,
+        "annualised_volatility_pct": 16.74,
+        "calmar_ratio": -0.238,
+        "final_equity": 493283.57
+      }
+    },
+    {
+      "fold": 4,
+      "test": [
+        "2019-09-29",
+        "2020-03-29"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -5.01,
+          "cagr_pct": -9.95,
+          "sharpe_ratio": -0.921,
+          "sortino_ratio": -1.189,
+          "max_drawdown_pct": -12.85,
+          "max_drawdown_duration_days": 58,
+          "annualised_volatility_pct": 16.87,
+          "calmar_ratio": -0.774,
+          "final_equity": 474970.83,
+          "num_trades": 26,
+          "win_rate_pct": 38.46,
+          "avg_win": 6811.05,
+          "avg_loss": -5821.23,
+          "profit_factor": 0.731,
+          "avg_holding_period_days": 56.1,
+          "avg_capital_deployed_pct": 76.8,
+          "total_transaction_costs": 1380.44,
+          "upside_capture_pct": 21.24,
+          "downside_capture_pct": 21.19,
+          "tracking_error_pct": 29.31,
+          "information_ratio": 1.393,
+          "days_in_bull_regime": 97,
+          "days_in_bear_regime": 25
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": -24.53,
+        "cagr_pct": -43.68,
+        "sharpe_ratio": -1.736,
+        "sortino_ratio": -2.02,
+        "max_drawdown_pct": -38.44,
+        "max_drawdown_duration_days": 51,
+        "annualised_volatility_pct": 34.03,
+        "calmar_ratio": -1.136,
+        "final_equity": 377371.02
+      }
+    },
+    {
+      "fold": 5,
+      "test": [
+        "2020-03-29",
+        "2020-09-27"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 33.63,
+          "cagr_pct": 80.68,
+          "sharpe_ratio": 3.575,
+          "sortino_ratio": 7.465,
+          "max_drawdown_pct": -7.75,
+          "max_drawdown_duration_days": 19,
+          "annualised_volatility_pct": 15.14,
+          "calmar_ratio": 10.407,
+          "final_equity": 668143.32,
+          "num_trades": 24,
+          "win_rate_pct": 70.83,
+          "avg_win": 11424.8,
+          "avg_loss": -3800.82,
+          "profit_factor": 7.3,
+          "avg_holding_period_days": 36.7,
+          "avg_capital_deployed_pct": 39.87,
+          "total_transaction_costs": 1087.61,
+          "upside_capture_pct": 81.63,
+          "downside_capture_pct": -56.52,
+          "tracking_error_pct": 26.14,
+          "information_ratio": 0.287,
+          "days_in_bull_regime": 51,
+          "days_in_bear_regime": 73
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 33.44,
+        "cagr_pct": 80.15,
+        "sharpe_ratio": 2.09,
+        "sortino_ratio": 3.395,
+        "max_drawdown_pct": -10.51,
+        "max_drawdown_duration_days": 20,
+        "annualised_volatility_pct": 26.91,
+        "calmar_ratio": 7.624,
+        "final_equity": 667197.02
+      }
+    },
+    {
+      "fold": 6,
+      "test": [
+        "2020-09-27",
+        "2021-03-28"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 38.75,
+          "cagr_pct": 95.09,
+          "sharpe_ratio": 3.058,
+          "sortino_ratio": 5.047,
+          "max_drawdown_pct": -9.41,
+          "max_drawdown_duration_days": 28,
+          "annualised_volatility_pct": 20.61,
+          "calmar_ratio": 10.105,
+          "final_equity": 693752.69,
+          "num_trades": 26,
+          "win_rate_pct": 73.08,
+          "avg_win": 13121.04,
+          "avg_loss": -8014.52,
+          "profit_factor": 4.444,
+          "avg_holding_period_days": 62.3,
+          "avg_capital_deployed_pct": 86.45,
+          "total_transaction_costs": 1571.98,
+          "upside_capture_pct": 134.66,
+          "downside_capture_pct": 46.39,
+          "tracking_error_pct": 19.39,
+          "information_ratio": 1.172,
+          "days_in_bull_regime": 124,
+          "days_in_bear_regime": 0
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 29.21,
+        "cagr_pct": 68.7,
+        "sharpe_ratio": 2.653,
+        "sortino_ratio": 4.03,
+        "max_drawdown_pct": -6.9,
+        "max_drawdown_duration_days": 28,
+        "annualised_volatility_pct": 17.97,
+        "calmar_ratio": 9.96,
+        "final_equity": 646058.14
+      }
+    },
+    {
+      "fold": 7,
+      "test": [
+        "2021-03-28",
+        "2021-09-26"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 33.25,
+          "cagr_pct": 80.23,
+          "sharpe_ratio": 2.476,
+          "sortino_ratio": 3.822,
+          "max_drawdown_pct": -7.4,
+          "max_drawdown_duration_days": 28,
+          "annualised_volatility_pct": 22.68,
+          "calmar_ratio": 10.838,
+          "final_equity": 666254.19,
+          "num_trades": 29,
+          "win_rate_pct": 62.07,
+          "avg_win": 13750.01,
+          "avg_loss": -7442.57,
+          "profit_factor": 3.023,
+          "avg_holding_period_days": 55.2,
+          "avg_capital_deployed_pct": 86.48,
+          "total_transaction_costs": 1764.77,
+          "upside_capture_pct": 91.16,
+          "downside_capture_pct": null,
+          "tracking_error_pct": 25.47,
+          "information_ratio": 0.899,
+          "days_in_bull_regime": 122,
+          "days_in_bear_regime": 0
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 20.26,
+        "cagr_pct": 46.03,
+        "sharpe_ratio": 2.661,
+        "sortino_ratio": 3.954,
+        "max_drawdown_pct": -3.88,
+        "max_drawdown_duration_days": 15,
+        "annualised_volatility_pct": 12.29,
+        "calmar_ratio": 11.856,
+        "final_equity": 601316.25
+      }
+    },
+    {
+      "fold": 8,
+      "test": [
+        "2021-09-26",
+        "2022-03-27"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 2.64,
+          "cagr_pct": 5.46,
+          "sharpe_ratio": 0.075,
+          "sortino_ratio": 0.097,
+          "max_drawdown_pct": -19.34,
+          "max_drawdown_duration_days": 43,
+          "annualised_volatility_pct": 23.12,
+          "calmar_ratio": 0.282,
+          "final_equity": 513186.44,
+          "num_trades": 26,
+          "win_rate_pct": 38.46,
+          "avg_win": 13503.58,
+          "avg_loss": -7624.7,
+          "profit_factor": 1.107,
+          "avg_holding_period_days": 56.4,
+          "avg_capital_deployed_pct": 76.54,
+          "total_transaction_costs": 1411.65,
+          "upside_capture_pct": 205.55,
+          "downside_capture_pct": 71.93,
+          "tracking_error_pct": 24.15,
+          "information_ratio": 0.67,
+          "days_in_bull_regime": 110,
+          "days_in_bear_regime": 14
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": -3.93,
+        "cagr_pct": -7.86,
+        "sharpe_ratio": -0.688,
+        "sortino_ratio": -0.907,
+        "max_drawdown_pct": -14.15,
+        "max_drawdown_duration_days": 109,
+        "annualised_volatility_pct": 18.82,
+        "calmar_ratio": -0.556,
+        "final_equity": 480338.96
+      }
+    },
+    {
+      "fold": 9,
+      "test": [
+        "2022-03-27",
+        "2022-09-25"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 2.12,
+          "cagr_pct": 4.38,
+          "sharpe_ratio": -0.056,
+          "sortino_ratio": -0.086,
+          "max_drawdown_pct": -13.17,
+          "max_drawdown_duration_days": 113,
+          "annualised_volatility_pct": 15.08,
+          "calmar_ratio": 0.332,
+          "final_equity": 510604.71,
+          "num_trades": 28,
+          "win_rate_pct": 50.0,
+          "avg_win": 5811.0,
+          "avg_loss": -5080.88,
+          "profit_factor": 1.144,
+          "avg_holding_period_days": 44.4,
+          "avg_capital_deployed_pct": 47.5,
+          "total_transaction_costs": 1062.38,
+          "upside_capture_pct": 56.85,
+          "downside_capture_pct": 46.24,
+          "tracking_error_pct": 12.34,
+          "information_ratio": 0.264,
+          "days_in_bull_regime": 54,
+          "days_in_bear_regime": 70
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 0.61,
+        "cagr_pct": 1.25,
+        "sharpe_ratio": -0.225,
+        "sortino_ratio": -0.32,
+        "max_drawdown_pct": -15.29,
+        "max_drawdown_duration_days": 109,
+        "annualised_volatility_pct": 17.0,
+        "calmar_ratio": 0.082,
+        "final_equity": 503058.58
+      }
+    },
+    {
+      "fold": 10,
+      "test": [
+        "2022-09-25",
+        "2023-03-26"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -24.23,
+          "cagr_pct": -43.22,
+          "sharpe_ratio": -3.316,
+          "sortino_ratio": -3.874,
+          "max_drawdown_pct": -24.59,
+          "max_drawdown_duration_days": 124,
+          "annualised_volatility_pct": 18.37,
+          "calmar_ratio": -1.758,
+          "final_equity": 378874.52,
+          "num_trades": 32,
+          "win_rate_pct": 18.75,
+          "avg_win": 2309.1,
+          "avg_loss": -5207.28,
+          "profit_factor": 0.102,
+          "avg_holding_period_days": 47.2,
+          "avg_capital_deployed_pct": 78.82,
+          "total_transaction_costs": 1379.16,
+          "upside_capture_pct": -29.82,
+          "downside_capture_pct": 212.39,
+          "tracking_error_pct": 10.4,
+          "information_ratio": -4.727,
+          "days_in_bull_regime": 108,
+          "days_in_bear_regime": 17
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": -0.42,
+        "cagr_pct": -0.85,
+        "sharpe_ratio": -0.559,
+        "sortino_ratio": -0.815,
+        "max_drawdown_pct": -9.93,
+        "max_drawdown_duration_days": 79,
+        "annualised_volatility_pct": 11.89,
+        "calmar_ratio": -0.086,
+        "final_equity": 497906.42
+      }
+    },
+    {
+      "fold": 11,
+      "test": [
+        "2023-03-26",
+        "2023-09-24"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 45.48,
+          "cagr_pct": 114.87,
+          "sharpe_ratio": 4.692,
+          "sortino_ratio": 8.357,
+          "max_drawdown_pct": -3.17,
+          "max_drawdown_duration_days": 14,
+          "annualised_volatility_pct": 15.55,
+          "calmar_ratio": 36.292,
+          "final_equity": 727387.5,
+          "num_trades": 29,
+          "win_rate_pct": 82.76,
+          "avg_win": 10810.14,
+          "avg_loss": -6466.76,
+          "profit_factor": 8.024,
+          "avg_holding_period_days": 46.7,
+          "avg_capital_deployed_pct": 68.2,
+          "total_transaction_costs": 1799.81,
+          "upside_capture_pct": 257.2,
+          "downside_capture_pct": null,
+          "tracking_error_pct": 14.69,
+          "information_ratio": 3.481,
+          "days_in_bull_regime": 117,
+          "days_in_bear_regime": 5
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 15.83,
+        "cagr_pct": 34.96,
+        "sharpe_ratio": 2.933,
+        "sortino_ratio": 4.826,
+        "max_drawdown_pct": -3.63,
+        "max_drawdown_duration_days": 35,
+        "annualised_volatility_pct": 8.34,
+        "calmar_ratio": 9.63,
+        "final_equity": 579141.6
+      }
+    },
+    {
+      "fold": 12,
+      "test": [
+        "2023-09-24",
+        "2024-03-24"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 14.43,
+          "cagr_pct": 31.65,
+          "sharpe_ratio": 1.024,
+          "sortino_ratio": 1.387,
+          "max_drawdown_pct": -15.76,
+          "max_drawdown_duration_days": 32,
+          "annualised_volatility_pct": 24.13,
+          "calmar_ratio": 2.008,
+          "final_equity": 572134.88,
+          "num_trades": 26,
+          "win_rate_pct": 57.69,
+          "avg_win": 11691.64,
+          "avg_loss": -9415.04,
+          "profit_factor": 1.693,
+          "avg_holding_period_days": 60.8,
+          "avg_capital_deployed_pct": 84.87,
+          "total_transaction_costs": 1559.5,
+          "upside_capture_pct": 43.86,
+          "downside_capture_pct": -375.16,
+          "tracking_error_pct": 31.06,
+          "information_ratio": 0.473,
+          "days_in_bull_regime": 122,
+          "days_in_bear_regime": 0
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 12.31,
+        "cagr_pct": 26.73,
+        "sharpe_ratio": 1.602,
+        "sortino_ratio": 2.391,
+        "max_drawdown_pct": -4.82,
+        "max_drawdown_duration_days": 23,
+        "annualised_volatility_pct": 11.45,
+        "calmar_ratio": 5.55,
+        "final_equity": 561556.66
+      }
+    },
+    {
+      "fold": 13,
+      "test": [
+        "2024-03-24",
+        "2024-09-22"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 12.2,
+          "cagr_pct": 26.64,
+          "sharpe_ratio": 0.77,
+          "sortino_ratio": 1.008,
+          "max_drawdown_pct": -11.91,
+          "max_drawdown_duration_days": 46,
+          "annualised_volatility_pct": 28.67,
+          "calmar_ratio": 2.237,
+          "final_equity": 560986.71,
+          "num_trades": 24,
+          "win_rate_pct": 58.33,
+          "avg_win": 10191.43,
+          "avg_loss": -8207.86,
+          "profit_factor": 1.738,
+          "avg_holding_period_days": 67.4,
+          "avg_capital_deployed_pct": 88.3,
+          "total_transaction_costs": 1359.7,
+          "upside_capture_pct": 119.01,
+          "downside_capture_pct": null,
+          "tracking_error_pct": 24.16,
+          "information_ratio": -0.056,
+          "days_in_bull_regime": 121,
+          "days_in_bear_regime": 0
+        }
+      },
+      "mom30_etf_return_pct": null,
+      "benchmark": {
+        "total_return_pct": 17.21,
+        "cagr_pct": 38.51,
+        "sharpe_ratio": 1.825,
+        "sortino_ratio": 2.563,
+        "max_drawdown_pct": -5.93,
+        "max_drawdown_duration_days": 26,
+        "annualised_volatility_pct": 15.37,
+        "calmar_ratio": 6.495,
+        "final_equity": 586032.76
+      }
+    },
+    {
+      "fold": 14,
+      "test": [
+        "2024-09-22",
+        "2025-03-23"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -18.45,
+          "cagr_pct": -34.04,
+          "sharpe_ratio": -2.385,
+          "sortino_ratio": -2.872,
+          "max_drawdown_pct": -21.74,
+          "max_drawdown_duration_days": 124,
+          "annualised_volatility_pct": 19.22,
+          "calmar_ratio": -1.566,
+          "final_equity": 407755.89,
+          "num_trades": 25,
+          "win_rate_pct": 28.0,
+          "avg_win": 3727.09,
+          "avg_loss": -6580.94,
+          "profit_factor": 0.22,
+          "avg_holding_period_days": 45.4,
+          "avg_capital_deployed_pct": 57.42,
+          "total_transaction_costs": 1018.16,
+          "upside_capture_pct": null,
+          "downside_capture_pct": 147.3,
+          "tracking_error_pct": 14.08,
+          "information_ratio": -1.333,
+          "days_in_bull_regime": 59,
+          "days_in_bear_regime": 66
+        }
+      },
+      "mom30_etf_return_pct": -24.24,
+      "benchmark": {
+        "total_return_pct": -9.98,
+        "cagr_pct": -19.31,
+        "sharpe_ratio": -2.14,
+        "sortino_ratio": -2.82,
+        "max_drawdown_pct": -15.77,
+        "max_drawdown_duration_days": 121,
+        "annualised_volatility_pct": 12.64,
+        "calmar_ratio": -1.225,
+        "final_equity": 450101.29
+      }
+    },
+    {
+      "fold": 15,
+      "test": [
+        "2025-03-23",
+        "2025-09-21"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": 4.79,
+          "cagr_pct": 10.02,
+          "sharpe_ratio": 0.297,
+          "sortino_ratio": 0.453,
+          "max_drawdown_pct": -3.99,
+          "max_drawdown_duration_days": 56,
+          "annualised_volatility_pct": 14.22,
+          "calmar_ratio": 2.515,
+          "final_equity": 523965.15,
+          "num_trades": 24,
+          "win_rate_pct": 50.0,
+          "avg_win": 7192.67,
+          "avg_loss": -5238.37,
+          "profit_factor": 1.373,
+          "avg_holding_period_days": 62.0,
+          "avg_capital_deployed_pct": 71.01,
+          "total_transaction_costs": 1013.95,
+          "upside_capture_pct": 25.32,
+          "downside_capture_pct": -40.54,
+          "tracking_error_pct": 12.28,
+          "information_ratio": -0.438,
+          "days_in_bull_regime": 105,
+          "days_in_bear_regime": 18
+        }
+      },
+      "mom30_etf_return_pct": 8.79,
+      "benchmark": {
+        "total_return_pct": 7.05,
+        "cagr_pct": 14.92,
+        "sharpe_ratio": 0.638,
+        "sortino_ratio": 1.009,
+        "max_drawdown_pct": -6.37,
+        "max_drawdown_duration_days": 58,
+        "annualised_volatility_pct": 13.25,
+        "calmar_ratio": 2.343,
+        "final_equity": 535266.64
+      }
+    },
+    {
+      "fold": 16,
+      "test": [
+        "2025-09-21",
+        "2026-03-22"
+      ],
+      "runs": {
+        "v1_raw|default": {
+          "total_return_pct": -13.91,
+          "cagr_pct": -26.33,
+          "sharpe_ratio": -2.028,
+          "sortino_ratio": -2.602,
+          "max_drawdown_pct": -17.35,
+          "max_drawdown_duration_days": 85,
+          "annualised_volatility_pct": 17.59,
+          "calmar_ratio": -1.518,
+          "final_equity": 430460.11,
+          "num_trades": 27,
+          "win_rate_pct": 25.93,
+          "avg_win": 8184.08,
+          "avg_loss": -6347.17,
+          "profit_factor": 0.451,
+          "avg_holding_period_days": 43.9,
+          "avg_capital_deployed_pct": 60.55,
+          "total_transaction_costs": 1327.45,
+          "upside_capture_pct": 75.6,
+          "downside_capture_pct": 120.39,
+          "tracking_error_pct": 20.06,
+          "information_ratio": -0.361,
+          "days_in_bull_regime": 106,
+          "days_in_bear_regime": 17
+        }
+      },
+      "mom30_etf_return_pct": -8.26,
+      "benchmark": {
+        "total_return_pct": -8.28,
+        "cagr_pct": -16.18,
+        "sharpe_ratio": -1.94,
+        "sortino_ratio": -2.419,
+        "max_drawdown_pct": -12.63,
+        "max_drawdown_duration_days": 52,
+        "annualised_volatility_pct": 12.18,
+        "calmar_ratio": -1.28,
+        "final_equity": 458578.27
+      }
+    }
+  ],
+  "summary": {
+    "excess_vs_nifty50": {
+      "folds": 16,
+      "mean_pp": -0.46,
+      "median_pp": -1.03,
+      "folds_beating": 8
+    }
+  }
+}

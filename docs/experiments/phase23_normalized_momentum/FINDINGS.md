@@ -63,7 +63,18 @@ positive after dropping any single fold (+1.61 to +5.04pp). Phase 20 measured
 the same strategy at mean −0.84pp, median −1.88pp, 6 of 16 — on the old
 engine and an older data vintage.
 
-That is not evidence of an edge:
+**How much of that is the engine fix.** The same `v1_raw` arm was run on the
+pre-fix engine against the same lab and folds
+([attribution_old_engine.json](attribution_old_engine.json); the Phase 23 script
+with only that arm, on `feat/realistic-forward-scoring`'s engine). Old engine:
+mean −0.46pp, median −1.03pp, 8 of 16 — close to Phase 20, so the newer data is
+not what moved the result. The fix raised V1's return in 13 of 16 folds, by
++4.12pp on average (median +4.45pp). Fold 1's trade logs show the mechanism:
+the same 27 trades, the same exits except gaps, entries one session later at a
+median 2.1% lower price, because the old engine bought at `entry_high` — half
+an ATR above the close — at the close itself.
+
+That is still not evidence of an edge:
 
 - **The universe is survivors-only.** Each fold draws from today's 1,000 most
   liquid listings, which over-represents stocks that went on to do well — the

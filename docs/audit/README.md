@@ -198,24 +198,35 @@ deleted. Checked and unaffected: Phase 16 (narrower arms after wider — the
 leaked names were never selectable), Phase 18 (one cache per universe), Phases
 20 and 21 (one universe across arms).
 
-### 19. Gap-down stops fill at the stop price — HIGH, open
+### 19. Gap-down stops fill at the stop price — HIGH, fixed
 
 `if low <= pos.stop_loss: exit_price = pos.stop_loss`, even when the session
-opened below the stop. On the regression fixture, a 30% gap-down is booked as a
+opened below the stop. On the regression fixture, a 30% gap-down was booked as a
 **4.76% loss** — stopped out at ₹269.43 on a day that opened at ₹202.79. It
-overstates every published backtest's stop exits. Encoded as a strict xfail in
-`tests/test_backtest_execution.py`; left unfixed because fixing it changes every
-backtest the engine has produced, which is a research decision with a re-run
-attached.
+overstated every published backtest's stop exits. **Fixed 2026-10-30**
+(`ceb3a9f`): a session that opens through the stop fills at the open, and
+symmetrically a gap over the target sells at the open. The strict xfail in
+`tests/test_backtest_execution.py` is gone and the test passes.
 
-### 20. Entries fill on the signal bar — HIGH, open
+### 20. Entries fill on the signal bar — HIGH, fixed
 
-On a rebalance day the snapshot is scored on bars up to and including that
-day's close, and the position is opened the same day at `entry_high` derived
+On a rebalance day the snapshot was scored on bars up to and including that
+day's close, and the position opened the same day at `entry_high` derived
 from that close. A signal computed from a close cannot be traded at that close;
-the live system publishes at 09:15 IST and fills next session. **Direction of
-bias not established**: the timing is unexecutable, but `entry_high` sits above
-the close, which is pessimistic on price. Strict xfail, same reasoning as #19.
+the live system publishes at 09:15 IST and fills next session. **Fixed
+2026-10-30** (`ceb3a9f`): a rebalance decided at a close executes in the next
+session — entries as limit orders at `entry_high` (the open if it opens at or
+below, `entry_high` if the session trades down to it, otherwise not filled),
+regime trims at the next open.
+
+**Direction of bias, now measured: pessimistic, and large.** The old engine
+paid `entry_high`, half an ATR above the signal close, at that close. Same lab,
+same data, same 16 folds, only the engine changed
+(`docs/experiments/phase23_normalized_momentum/attribution_old_engine.json`):
+V1's excess over NIFTY 50 went from mean −0.46pp / median −1.03pp (8 of 16
+folds) to +3.65pp / +3.10pp (9 of 16), higher in 13 of 16 folds by +4.12pp on
+average. On fold 1 the same 27 trades entered a session later at a median 2.1%
+lower price. Every backtest before the fix understated V1.
 
 ## Checked and found sound
 
@@ -247,11 +258,12 @@ the close, which is pessimistic on price. Strict xfail, same reasoning as #19.
    Needs a lab seeded with the 1,000-stock pool.
 4. **Retrain the ML model.** Published metrics predate both leak fixes and the
    stored artifact was fitted on 31 features against a current default of 25.
-5. **Fix the two execution defects (#19, #20) and re-run the phases** on the
-   fixed engine — with the Sortino, benchmark-friction and universe corrections
-   in the same run, so the numbers stay comparable. Phase 19 must be re-run
-   before any of its conclusions are used again. Until #19 and #20 are fixed,
-   the momentum_v1.0 verdict's measurement stays FAIL by construction.
+5. ~~Fix the two execution defects (#19, #20)~~ Fixed 2026-10-30, and V1's
+   folds re-run on the fixed engine (Phase 23's `v1_raw` arm), which the
+   momentum_v1.0 verdict now uses. Still open: every other phase's numbers
+   predate the fix, and Phase 19 must be re-run before any of its conclusions
+   are used again. The benchmark-friction and survivorship corrections were not
+   part of this run.
 
 ---
 
