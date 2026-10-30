@@ -1,7 +1,7 @@
 {
-  "code_revision": "d764f98b66a153d8cdf1c5fed98a11096e4bec95",
-  "content_sha256": "cc157dc731c8c57cd3ae53ad4bdbe7e54922cb4979241fd943d19e0daab22f6e",
-  "data_snapshot": "sha256:19b670e09026cf99a42ef0807539dc7f12384ce889322025673c1b44ed170dad",
+  "code_revision": "dd59112dd9deda4d90930bb4d5cec2b99c965bce",
+  "content_sha256": "ed2578ddffebb6b967dcf201c8760f196d140bfdf0c56a72ac0d25733ba16e7c",
+  "data_snapshot": "sha256:71342cace97afc562483546e8197d4c88eab0336e6c6125ef86e6b77f4d08550",
   "edge_verdict": "FAIL",
   "evidence": {
     "benchmark": "NIFTY 50 price index (^NSEI via yfinance). A price index, not total return: it excludes dividends, so it understates what the benchmark actually returned.",
@@ -77,13 +77,13 @@
         "status": "NOT_EVALUATED"
       },
       {
-        "detail": "The survivorship-free re-run exists as a script but has not been run. The primary evidence is survivors-only, a bias that favours the strategy, so an edge on it alone would not be established.",
+        "detail": "Phase 24: frozen V1 on a survivorship-free universe (each fold's top 500 NSE company shares by traded value from NSE's bhavcopies, later-delisted companies included; fixed engine): median fold excess over NIFTY 50 -0.03pp, mean after dropping any one fold as low as -1.61pp; recorded is the smaller, and the pre-registered rule needs both above 0: measured -1.61, required > 0.0",
         "evidence": [
-          "backend/scripts/phase21_survivorship.py"
+          "docs/experiments/phase24_survivorship/results.json"
         ],
         "name": "survivorship_free_confirmation",
         "required": true,
-        "status": "NOT_EVALUATED"
+        "status": "FAIL"
       },
       {
         "detail": "296 live signals; edge vs NIFTY from an obtainable entry: 1d -2.44pp (n=249), 5d -1.80pp (n=218), 10d -0.09pp (n=216), 20d +2.90pp (n=206); PASS requires every sufficiently-sampled horizon > 0.0pp",
@@ -148,7 +148,7 @@
       {
         "direction": "favours_strategy",
         "id": "survivors_only_universe",
-        "note": "Membership is drawn from today's active stocks projected backwards (audit finding #2). Names that delisted are excluded, and they are the ones momentum is most exposed to on the way down. Not yet measured: phase21_survivorship has not run."
+        "note": "Membership is drawn from today's active stocks projected backwards (audit finding #2). Measured in Phase 24 on the fixed engine: survivors-only beat a survivorship-free universe by +3.00pp per fold on average, and the survivorship-free excess over NIFTY 50 is about zero (survivorship_free_confirmation)."
       },
       {
         "direction": "favours_strategy",
@@ -287,7 +287,7 @@
         "status": "PASS"
       },
       {
-        "detail": "396 tests: 396 passed, 0 failed, 0 errors, 0 skipped, 0 known defects (xfail)",
+        "detail": "402 tests: 402 passed, 0 failed, 0 errors, 0 skipped, 0 known defects (xfail)",
         "evidence": [
           "test_run.suite"
         ],
@@ -455,9 +455,9 @@
           "tests/test_audit_closure_reports.py: verifies the audit-closure deliverables, which are built from this artifact"
         ],
         "failures": 0,
-        "passed": 396,
+        "passed": 402,
         "skipped": 0,
-        "tests": 396,
+        "tests": 402,
         "xfailed": 0
       }
     },
@@ -469,10 +469,10 @@
     },
     "universe": "point-in-time top 500 by 20-day traded value at each fold start, drawn from a 1000-stock pool of currently active names (lab built 2026-10-30)"
   },
-  "generated_at": "2026-10-30T11:04:06.589415+00:00",
+  "generated_at": "2026-10-30T13:49:42.347621+00:00",
   "measurement_verdict": "PASS",
   "promotion_verdict": "BLOCKED",
   "strategy_id": "momentum_v1.0",
   "strategy_version": "v1.1-momentum-eqwt-regime-trend5d",
-  "summary": "Measurement PASS: all 13 required validity checks passed. Edge FAIL: 1 required edge check(s) failed (live_paper_beats_benchmark). Promotion BLOCKED."
+  "summary": "Measurement PASS: all 13 required validity checks passed. Edge FAIL: 2 required edge check(s) failed (survivorship_free_confirmation, live_paper_beats_benchmark). Promotion BLOCKED."
 }
