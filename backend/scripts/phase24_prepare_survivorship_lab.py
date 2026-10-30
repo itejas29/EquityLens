@@ -41,6 +41,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.database import SessionLocal  # noqa: E402
+from app.core.lab_guard import require_lab_database  # noqa: E402
 from app.core.experiment_paths import experiment_dir  # noqa: E402
 from app.models.nse_symbol import NseSymbol  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
@@ -54,7 +55,6 @@ log = logging.getLogger("p24prep")
 
 ROOT = Path(os.environ.get("NSE_ARCHIVE_DIR", Path.home() / ".cache/equitylens/nse")).expanduser()
 OUT = experiment_dir("phase24_survivorship")
-PRODUCTION_HOST_FRAGMENT = "ep-aged-scene-a6dw1x3w"
 
 # Phase 20/23's fold layout, unchanged.
 START, END = date(2016, 10, 1), date(2026, 8, 1)
@@ -125,8 +125,7 @@ def link_identities(df: pd.DataFrame) -> pd.Series:
 
 def main() -> None:
     db = SessionLocal()
-    if PRODUCTION_HOST_FRAGMENT in str(db.get_bind().url):
-        raise SystemExit("Refusing: this writes stocks and prices, and DATABASE_URL is production.")
+    require_lab_database(db.get_bind().url)  # this writes stocks and prices
 
     df = load_eq_rows()
     log.info("EQ rows: %d, symbols: %d, trading days: %d", len(df), df["symbol"].nunique(), df["date"].nunique())

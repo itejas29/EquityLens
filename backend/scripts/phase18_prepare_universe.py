@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
 from app.core.database import SessionLocal  # noqa: E402
+from app.core.lab_guard import require_lab_database  # noqa: E402
 from app.core.universe_config import FUNDAMENTALS_DELAY_SECONDS, STAGE_GAP_SECONDS  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services import universe as universe_mod  # noqa: E402
@@ -48,22 +49,13 @@ log = logging.getLogger("p18prep")
 
 TARGET_UNIVERSE = 1000
 
-# The live database's endpoint. This script marks stocks active and pulls a
-# decade of history for 500 new names; doing that to production would change
-# the next morning's shortlist before the experiment has said whether depth
-# helps, which is the exact ordering Phase 18 exists to avoid.
-PRODUCTION_HOST_FRAGMENT = "ep-aged-scene-a6dw1x3w"
-
-
 def guard_not_production() -> None:
-    url = settings.database_url
-    if PRODUCTION_HOST_FRAGMENT in url:
-        raise SystemExit(
-            "\nRefusing to run: DATABASE_URL points at the production endpoint.\n"
-            "This script activates ~500 new stocks, which would change the live\n"
-            "shortlist before Phase 18 has validated whether depth helps.\n"
-            "Point DATABASE_URL at the experiment branch and re-run.\n")
-    log.info("target database: %s", url.split("@")[-1].split("/")[0])
+    # This script marks stocks active and pulls a decade of history for 500 new
+    # names; doing that to production would change the next morning's shortlist
+    # before the experiment has said whether depth helps, which is the exact
+    # ordering Phase 18 exists to avoid. It ran against a Neon experiment
+    # branch: list that host in LAB_DB_HOSTS (core/lab_guard.py).
+    log.info("target database: %s", require_lab_database(settings.database_url))
 
 
 def main() -> None:

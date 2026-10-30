@@ -89,5 +89,11 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
 
+    # Research scripts refuse any database that is not on this machine
+    # (app/core/lab_guard.py). A remote experiment copy — a Neon branch, say —
+    # is allowed only by listing its host here, comma-separated. Production is
+    # never listed, so no lab script can write to it.
+    lab_db_hosts: str = ""
+
 
 settings = Settings()

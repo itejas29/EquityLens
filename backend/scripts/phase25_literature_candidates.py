@@ -27,6 +27,7 @@ from app.core.backtest_config import DEFAULT_SLIPPAGE_PCT, DEFAULT_TRANSACTION_C
 from app.core.database import SessionLocal  # noqa: E402
 from app.core.experiment_lock import experiment_lock  # noqa: E402
 from app.core.experiment_paths import experiment_dir  # noqa: E402
+from app.core.lab_guard import require_lab_database  # noqa: E402
 from app.core.universe_config import HISTORY_PERIOD  # noqa: E402
 from app.core.v1_strategy import V1  # noqa: E402
 from app.ml import ranker  # noqa: E402
@@ -40,7 +41,6 @@ log = logging.getLogger("p25")
 
 OUT = experiment_dir("phase25_literature_candidates")
 P24 = experiment_dir("phase24_survivorship")
-PRODUCTION_HOST_FRAGMENT = "ep-aged-scene-a6dw1x3w"
 CAPITAL = 500_000
 # Frozen V1 at 30 positions, keeping its 20% sector cap (2 of 10 -> 6 of 30).
 BASE = replace(V1, max_stocks=30, max_stocks_per_sector=6)
@@ -115,8 +115,7 @@ def _rounded(stats: dict) -> dict:
 
 def main() -> None:
     db = SessionLocal()
-    if PRODUCTION_HOST_FRAGMENT in str(db.get_bind().url):
-        raise SystemExit("Refusing: DATABASE_URL is production. Run against the lab.")
+    require_lab_database(db.get_bind().url)
     plan = json.loads((P24 / "universes.json").read_text())
     folds = plan["folds"]
     started = time.time()

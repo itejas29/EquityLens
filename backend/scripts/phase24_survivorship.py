@@ -30,6 +30,7 @@ from app.core.backtest_config import DEFAULT_SLIPPAGE_PCT, DEFAULT_TRANSACTION_C
 from app.core.database import SessionLocal  # noqa: E402
 from app.core.experiment_lock import experiment_lock  # noqa: E402
 from app.core.experiment_paths import experiment_dir  # noqa: E402
+from app.core.lab_guard import require_lab_database  # noqa: E402
 from app.core.strategy_params import StrategyParams  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services.backtest import BacktestConfig, run_backtest  # noqa: E402
@@ -71,6 +72,7 @@ def _excess_stats(values: list[float]) -> dict:
 def main() -> None:
     plan = json.loads((OUT / "universes.json").read_text())
     db = SessionLocal()
+    require_lab_database(db.get_bind().url)  # the sector sensitivity rewrites stocks.sector
     rec = {"experiment": "phase24_survivorship", "universes": {k: v for k, v in plan.items() if k != "folds"},
            "folds": []}
     caches: dict[int, dict] = {}
