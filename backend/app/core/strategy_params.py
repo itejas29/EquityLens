@@ -114,6 +114,14 @@ class StrategyParams:
     #               deviation of daily log returns over the last year, z-scored
     #               across the cross-section, averaged 50/50, percentile-ranked.
     #               A steady riser outranks a jumpy one with the same return.
+    # Phase 25 candidates (services/ranking_candidates.py, definitions fixed in
+    # docs/experiments/phase25_literature_candidates/PREREGISTRATION.md):
+    # "momentum_residual" — 12m-1m momentum of the return left after removing
+    #               the stock's NIFTY beta, scaled by its volatility.
+    # "high_52w"    — close divided by the highest close of the last year.
+    # "momentum_lowvol" — mean of the 12m-1m momentum percentile and the
+    #               low-volatility percentile.
+    # "external"    — scores from BacktestConfig.score_fn (the ML ranker).
     # Only the RANKING changes. Universe, entry logic, sizing, stops, regime,
     # costs and execution stay identical, which is what makes the A/B clean.
     ranking_engine: str = "composite"

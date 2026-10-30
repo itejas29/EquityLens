@@ -21,6 +21,12 @@ from app.core.scoring_config import RISK_WEIGHTS, TECHNICAL_WEIGHTS
 from app.services.indicators import compute_indicators
 from app.services.levels import Levels, atr_and_support, levels_from_atr
 from app.services.price_integrity import find_discontinuity
+from app.services.ranking_candidates import (
+    high_52w_scores,
+    momentum_lowvol_blend,
+    residual_momentum_scores,
+    volatility_scores,
+)
 from app.services.scoring import (
     _beta_score,
     _composite,
@@ -35,6 +41,8 @@ from app.services.scoring import (
 )
 
 LIQUIDITY_WINDOW = 20
+# Ranking engines added for Phase 25 (see StrategyParams.ranking_engine).
+PHASE25_ENGINES = ("momentum_residual", "high_52w", "momentum_lowvol", "external")
 
 
 @dataclass
@@ -158,12 +166,49 @@ def normalized_momentum_scores(
     return (combined / len(windows)).to_dict()
 
 
+def _v1_momentum_raw(stock_ids, bounded_frames: dict[int, pd.DataFrame], params) -> dict[int, float]:
+    """V1's raw momentum, 12-month return minus 1-month return, per stock."""
+    raw_mom: dict[int, float] = {}
+    for stock_id in stock_ids:
+        # Guard: a cached snapshot can contain stock_ids that are absent
+        # from the current frames if universe membership changed between
+        # runs sharing the cache. The `raw` construction below guards the
+        # same way; this loop must too.
+        if stock_id not in bounded_frames:
+            continue
+        closes = bounded_frames[stock_id]["close"].astype(float).dropna()
+        lookback = getattr(params, "momentum_long_days", 252)
+        skip = getattr(params, "momentum_skip_days", 21)
+        if len(closes) < lookback + 1:
+            continue
+        # Same corporate-action gate as daily_signals._momentum_scores, and
+        # it has to be here for the same reason that function's docstring
+        # gives: "Identical construction ... so a signal published in
+        # production matches what the backtest would have selected." Adding
+        # the gate to only one of the two would break exactly the property
+        # every phase of the research programme rests on.
+        if find_discontinuity(closes.tolist()) is not None:
+            continue
+        last, long_ago = closes.iloc[-1], closes.iloc[-lookback]
+        if long_ago <= 0:
+            continue
+        total = last / long_ago - 1
+        if skip > 0:
+            recent_base = closes.iloc[-skip]
+            if recent_base <= 0:
+                continue
+            total -= last / recent_base - 1
+        raw_mom[stock_id] = float(total)
+    return raw_mom
+
+
 def compute_point_in_time_universe(
     bounded_frames: dict[int, pd.DataFrame],
     bounded_benchmark_df: pd.DataFrame,
     params=None,
     indicator_cache: dict | None = None,
     as_of=None,
+    score_fn=None,
 ) -> dict[int, PointInTimeSnapshot]:
     """bounded_frames: {stock_id: OHLCV DataFrame already filtered to
     date <= as_of_date}. bounded_benchmark_df: ^NSEI OHLC, same cutoff.
@@ -171,6 +216,9 @@ def compute_point_in_time_universe(
     `indicator_cache` is an optional caller-owned dict keyed by `as_of`. It
     holds the parameter-independent half so a parameter sweep over the same
     dates does not recompute indicators for every candidate.
+
+    `score_fn(frames, bounded_benchmark_df, as_of) -> {stock_id: score}` ranks
+    the universe when params.ranking_engine is "external"; unused otherwise.
     """
     cache_key = as_of
     if indicator_cache is not None and cache_key in indicator_cache:
@@ -219,42 +267,13 @@ def compute_point_in_time_universe(
     # against momentum. Sub-scores are still computed below and reported, but
     # only overall_score drives selection.
     momentum_rank: dict[int, float] = {}
-    if params is not None and getattr(params, "ranking_engine", "composite") == "momentum":
-        raw_mom: dict[int, float] = {}
-        for stock_id in raw:
-            # Guard: a cached snapshot can contain stock_ids that are absent
-            # from the current frames if universe membership changed between
-            # runs sharing the cache. The `raw` construction below guards the
-            # same way; this loop must too.
-            if stock_id not in bounded_frames:
-                continue
-            closes = bounded_frames[stock_id]["close"].astype(float).dropna()
-            lookback = getattr(params, "momentum_long_days", 252)
-            skip = getattr(params, "momentum_skip_days", 21)
-            if len(closes) < lookback + 1:
-                continue
-            # Same corporate-action gate as daily_signals._momentum_scores, and
-            # it has to be here for the same reason that function's docstring
-            # gives: "Identical construction ... so a signal published in
-            # production matches what the backtest would have selected." Adding
-            # the gate to only one of the two would break exactly the property
-            # every phase of the research programme rests on.
-            if find_discontinuity(closes.tolist()) is not None:
-                continue
-            last, long_ago = closes.iloc[-1], closes.iloc[-lookback]
-            if long_ago <= 0:
-                continue
-            total = last / long_ago - 1
-            if skip > 0:
-                recent_base = closes.iloc[-skip]
-                if recent_base <= 0:
-                    continue
-                total -= last / recent_base - 1
-            raw_mom[stock_id] = float(total)
+    engine = getattr(params, "ranking_engine", "composite") if params is not None else "composite"
+    if engine == "momentum":
+        raw_mom = _v1_momentum_raw(raw, bounded_frames, params)
         if len(raw_mom) >= 2:
             ser = pd.Series(raw_mom).rank(pct=True) * 100
             momentum_rank = ser.to_dict()
-    elif params is not None and getattr(params, "ranking_engine", "composite") == "momentum_normalized":
+    elif engine == "momentum_normalized":
         # Same guard as the raw engine: only stocks in this run's frames.
         combined = normalized_momentum_scores(
             {sid: bounded_frames[sid]["close"].astype(float).dropna() for sid in raw if sid in bounded_frames},
@@ -263,6 +282,25 @@ def compute_point_in_time_universe(
         )
         if combined:
             momentum_rank = (pd.Series(combined).rank(pct=True) * 100).to_dict()
+    elif engine in PHASE25_ENGINES:
+        # Phase 25's candidates (services/ranking_candidates.py), with the same
+        # guard: only stocks in this run's frames.
+        frames = {sid: bounded_frames[sid] for sid in raw if sid in bounded_frames}
+        if engine == "momentum_residual":
+            scores = residual_momentum_scores(frames, bounded_benchmark_df)
+        elif engine == "high_52w":
+            scores = high_52w_scores(frames)
+        elif engine == "momentum_lowvol":
+            scores = momentum_lowvol_blend(_v1_momentum_raw(raw, bounded_frames, params), volatility_scores(frames))
+        else:
+            # "external": scores supplied by the caller — Phase 25's ML ranker,
+            # a model trained before the run starts. It receives exactly what
+            # every other engine sees: frames bounded at `as_of`.
+            if score_fn is None:
+                raise ValueError('ranking_engine="external" needs a score_fn')
+            scores = score_fn(frames, bounded_benchmark_df, as_of)
+        if len(scores) >= 2:
+            momentum_rank = (pd.Series(scores).rank(pct=True) * 100).to_dict()
 
     # --- recent-trend entry gate (Phase 17) ---------------------------
     # Computed from the same bounded_frames the ranking uses, so it is

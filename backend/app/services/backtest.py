@@ -83,6 +83,10 @@ class BacktestConfig:
     # published phase result stays reproducible — see the survivorship note in
     # the module docstring. A study measuring the bias sets this True.
     include_inactive: bool = False
+    # Scores for params.ranking_engine == "external" (Phase 25's ML ranker):
+    # called at each rebalance with frames bounded at that date — see
+    # backtest_scoring.compute_point_in_time_universe. None otherwise.
+    score_fn: object = None
 
 
 @dataclass
@@ -886,7 +890,8 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
             bounded_frames = {sid: df[df["date"] <= today] for sid, df in raw_frames.items()}
             bounded_bench = benchmark_df[benchmark_df["date"] <= today]
             snapshot = compute_point_in_time_universe(
-                bounded_frames, bounded_bench, config.params, config.indicator_cache, today
+                bounded_frames, bounded_bench, config.params, config.indicator_cache, today,
+                score_fn=config.score_fn,
             )
 
             current_equity = cash + sum(

@@ -124,4 +124,26 @@ trade counts, missed entries, costs paid, and maximum drawdown.
 
 ## Changes after registration
 
-None yet.
+1. **2026-10-30, while writing the code, before any run: `early_stopping=False`
+   made explicit for M4.** The registered settings did not name it, and
+   scikit-learn's default (`"auto"`) turns early stopping on above 10,000
+   training rows, using a *random* 10% of them for validation. That would make
+   the number of trees depend on each fold's size and would validate on rows
+   dated after some of the training rows. With it off, every fold's model has
+   exactly the registered 200 iterations. No model had been trained when this
+   was changed.
+2. **2026-10-30, while writing the code, before any run: the basket's
+   corporate-action rule.** The registration did not say what the basket does
+   with a stock whose window contains an unadjusted split or bonus. Such a
+   stock would add a fake −50% (or +100%) to the basket. It is left out of
+   that fold's basket and counted — the same gate that keeps such a stock out
+   of every ranking. The counts are reported. No result existed when this was
+   decided.
+3. **2026-10-30, checking the lab's data before any run: ML training starts
+   2017-11-30, not 2017-06-30.** The registered date assumed every name's
+   history starts with the NSE files (2016-06-01). In the lab, the 742 names
+   loaded from Yahoo start on 2016-11-01, so they reach the required year and a
+   day of bars only in November 2017. Between June and October 2017, the
+   training rows would have held only the 105 names loaded from the NSE files,
+   71 of them since delisted. Fold 1's model therefore trains on four
+   month-ends instead of nine. Nothing had been trained or run.
