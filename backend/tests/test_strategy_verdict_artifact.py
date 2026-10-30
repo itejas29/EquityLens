@@ -3,14 +3,17 @@
 Excluded from the generator's own test run (it verifies the artifact, so it
 cannot be an input to it) but runs everywhere else, including CI.
 
-THE EXPECTED RESULT IS NOT THE ONE THE PLAN ANTICIPATED. The plan expected
-Measurement PASS / Edge FAIL / Promotion BLOCKED. Generated from explicit
-checks, the result is Measurement FAIL / Edge BLOCKED / Promotion BLOCKED:
-two execution defects in the backtest engine (gap-down stops fill at the stop;
-entries fill on the signal bar) fail measurement, and an edge verdict on numbers
-the measurement checks cannot vouch for is no verdict. The edge checks that
-could be evaluated are still recorded — four of five fail — so BLOCKED hides
-nothing. test_the_current_result_and_what_decides_it pins exactly that.
+THE RESULT, AND HOW IT GOT HERE. Generated 2026-09-13 the verdict was
+Measurement FAIL / Edge BLOCKED / Promotion BLOCKED: two execution defects in
+the backtest engine (gap-down stops filled at the stop; entries filled on the
+signal bar) failed measurement. Both were fixed on 2026-10-30, V1's folds were
+re-run on the fixed engine (Phase 23's v1_raw arm), and the verdict is now
+Measurement PASS / Edge FAIL / Promotion BLOCKED — what the original plan
+anticipated, for a narrower reason than it expected: every backtest check
+passes, and the live record fails. The backtest evidence is survivors-only and
+its survivorship-free confirmation is NOT_EVALUATED, so the backtest passes do
+not establish an edge either. test_the_current_result_and_what_decides_it pins
+exactly that.
 """
 
 import ast
@@ -93,26 +96,27 @@ def test_known_defects_in_the_verdict_are_still_known_defects_in_the_code():
 
 def test_the_current_result_and_what_decides_it():
     v = _verdict()
-    assert (v.measurement_verdict, v.edge_verdict, v.promotion_verdict) == ("FAIL", "BLOCKED", "BLOCKED")
+    assert (v.measurement_verdict, v.edge_verdict, v.promotion_verdict) == ("PASS", "FAIL", "BLOCKED")
 
     m = {c["name"]: c["status"] for c in v.evidence["measurement_checks"]}
-    assert {k for k, s in m.items() if s != "PASS"} == {"gap_down_stop_execution", "next_session_entry_execution"}
+    assert {k for k, s in m.items() if s != "PASS"} == set(), m
 
     e = {c["name"]: c["status"] for c in v.evidence["edge_checks"]}
-    assert {k for k, s in e.items() if s == "FAIL"} == {
+    # On the fixed engine every backtest check passes; the live record is what fails.
+    assert {k for k, s in e.items() if s == "FAIL"} == {"live_paper_beats_benchmark"}
+    assert {k for k, s in e.items() if s == "PASS"} == {
         "beats_primary_benchmark_after_costs", "positive_median_fold_excess_return",
-        "not_dependent_on_single_fold", "live_paper_beats_benchmark",
+        "not_dependent_on_single_fold", "drawdown_within_tolerance",
     }
-    assert e["drawdown_within_tolerance"] == "PASS"
     assert {k for k, s in e.items() if s == "NOT_EVALUATED"} == set(sv.COMPARISON_CHECKS)
 
     fig = v.evidence["edge_figures"]
-    # The negative MEAN is fragile: removing any one of three folds flips it.
-    # The median and the live record are the robust evidence of underperformance.
-    assert fig["mean_fold_excess_pp"] < 0 < fig["leave_one_out_mean_excess_max_pp"]
-    assert fig["folds_whose_removal_alone_flips_the_mean"] == [1, 2, 10]
-    assert fig["fold_whose_removal_raises_mean_most"] == 2
-    assert fig["median_fold_excess_pp"] < 0 and fig["folds_beating_benchmark"] == 6
+    # Positive, and not carried by any one fold — on a survivors-only universe.
+    assert fig["mean_fold_excess_pp"] > 0 and fig["leave_one_out_mean_excess_min_pp"] > 0
+    assert fig["folds_whose_removal_alone_flips_the_mean"] == []
+    assert fig["median_fold_excess_pp"] > 0 and fig["folds_beating_benchmark"] == 9
+    # The live record is negative from an obtainable entry at the shorter horizons.
+    assert fig["live_edge_from_entry_pct"]["1"] < 0 and fig["live_edge_from_entry_pct"]["5"] < 0
 
 
 def test_the_generator_run_left_nothing_unevaluated():

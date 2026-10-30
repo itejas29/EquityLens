@@ -3,18 +3,23 @@
     python scripts/assemble_verdict_evidence.py
 
 Inputs (all committed, each hashed into the bundle):
-  docs/experiments/phase20_holding_period/results.json   primary backtest evidence
-  docs/audit/momentum_v1.0/raw/track_record.json         live signals, captured from production
-  docs/audit/momentum_v1.0/raw/paper_ledger.json         live AI paper ledger, exported read-only
+  docs/experiments/phase23_normalized_momentum/results.json   primary backtest evidence (arm v1_raw|default)
+  docs/audit/momentum_v1.0/raw/track_record.json             live signals, captured from production
+  docs/audit/momentum_v1.0/raw/paper_ledger.json             live AI paper ledger, exported read-only
 
 Output:
   backend/app/core/verdict_artifacts/momentum_v1.0.evidence.json
 
-WHY PHASE 20 AND NOTHING ELSE for the backtest. The verdict needs evidence that
-tests THIS strategy version on a stated universe. Phase 20's h90_monthly_LIVE
-arm is the frozen V1 configuration (including the Phase 17 trend gate) on a
-point-in-time top-500 drawn from the 1,000-stock pool. Phase 19 also ran that
-configuration but is withdrawn (cache contamination). Phase 16's baseline,
+WHY PHASE 23's v1_raw ARM. The verdict needs evidence that tests THIS strategy
+version on a stated universe, measured by the engine as it now stands. Until
+2026-10-30 that was Phase 20's h90_monthly_LIVE arm, but Phase 20 ran on the
+engine with the two execution defects (#19 gap-down stops filled at the stop,
+#20 entries filled at the signal bar's close). Those are fixed, so Phase 20's
+folds are no longer what this engine produces. Phase 23's v1_raw arm is the
+same frozen V1, on Phase 20's fold layout and universe construction
+(point-in-time top 500 from a 1,000-stock pool), at the same costs, on the
+fixed engine — a lab built 2026-10-30, so a newer data vintage than Phase 20.
+Phase 19 is withdrawn (cache contamination). Phase 16's baseline,
 naive-momentum and stress-slippage arms predate the trend gate and used a
 different universe construction — Phase 18 measured construction alone moving
 results by ~12pp — so they are recorded as ineligible rather than borrowed.
@@ -40,11 +45,20 @@ from app.core.canonical import sha256_hex  # noqa: E402
 from app.core.research_record import PROTOCOL  # noqa: E402
 from app.core.v1_strategy import V1_DESCRIPTION, V1_VERSION  # noqa: E402
 
-PHASE20 = REPO / "docs/experiments/phase20_holding_period/results.json"
+BACKTEST = REPO / "docs/experiments/phase23_normalized_momentum/results.json"
 TRACK = REPO / "docs/audit/momentum_v1.0/raw/track_record.json"
 LEDGER = REPO / "docs/audit/momentum_v1.0/raw/paper_ledger.json"
 OUT = BACKEND / "app/core/verdict_artifacts/momentum_v1.0.evidence.json"
-LIVE_ARM = "h90_monthly_LIVE"
+LIVE_ARM = "v1_raw|default"
+
+
+def _regime(benchmark_return_pct):
+    """Phase 20's fold labels, same thresholds (phase20_holding_period.classify)."""
+    r = benchmark_return_pct
+    if r is None:
+        return "unknown"
+    return ("strong bull" if r >= 12 else "bull" if r >= 3 else "sideways" if r > -3
+            else "correction" if r > -12 else "bear")
 
 
 def _file_sha(p: Path) -> str:
@@ -52,7 +66,7 @@ def _file_sha(p: Path) -> str:
 
 
 def main() -> None:
-    p20 = json.loads(PHASE20.read_text())
+    bt = json.loads(BACKTEST.read_text())
     track = json.loads(TRACK.read_text())
     ledger = json.loads(LEDGER.read_text())
 
@@ -60,10 +74,10 @@ def main() -> None:
         "fold": f["fold"],
         "test_start": f["test"][0],
         "test_end": f["test"][1],
-        "regime": f["regime"],
-        "strategy": f["arms"][LIVE_ARM],
+        "regime": _regime(f["benchmark"].get("total_return_pct")),
+        "strategy": f["runs"][LIVE_ARM],
         "benchmark": f["benchmark"],
-    } for f in p20["folds"]]
+    } for f in bt["folds"]]
 
     bundle = {
         "strategy_id": "momentum_v1.0",
@@ -73,15 +87,15 @@ def main() -> None:
                     "code identifier in app/core/v1_strategy.py it maps to. The baseline includes the "
                     "Phase 17 trend gate, which is why the code string reads v1.1."),
         "sources": {
-            str(p.relative_to(REPO)): _file_sha(p) for p in (PHASE20, TRACK, LEDGER)
+            str(p.relative_to(REPO)): _file_sha(p) for p in (BACKTEST, TRACK, LEDGER)
         },
         "backtest": {
-            "source": str(PHASE20.relative_to(REPO)),
+            "source": str(BACKTEST.relative_to(REPO)),
             "arm": LIVE_ARM,
-            "run_completed": "2026-09-10 07:02 IST (docs/experiments/phase20_holding_period/FINDINGS.md)",
+            "run_completed": "2026-10-30 15:38 IST (docs/experiments/phase23_normalized_momentum/FINDINGS.md)",
             "protocol": PROTOCOL,
             "universe": ("point-in-time top 500 by 20-day traded value at each fold start, drawn from a "
-                         f"{p20.get('pool')}-stock pool of currently active names"),
+                         f"{bt.get('pool')}-stock pool of currently active names (lab built 2026-10-30)"),
             "benchmark": ("NIFTY 50 price index (^NSEI via yfinance). A price index, not total return: it "
                           "excludes dividends, so it understates what the benchmark actually returned."),
             "precision": "experiment scripts round per-fold metrics to 2 decimals before writing results.json",
@@ -91,12 +105,6 @@ def main() -> None:
                  "note": "Membership is drawn from today's active stocks projected backwards (audit finding "
                          "#2). Names that delisted are excluded, and they are the ones momentum is most "
                          "exposed to on the way down. Not yet measured: phase21_survivorship has not run."},
-                {"id": "gap_down_stop_fill", "direction": "favours_strategy",
-                 "note": "Stops fill at the stop price even when the session opened below it. Measurement "
-                         "defect, encoded as a strict xfail."},
-                {"id": "same_bar_entry", "direction": "not_established",
-                 "note": "Entries fill on the signal bar at entry_high derived from that bar's close. "
-                         "Unexecutable timing, but entry_high sits above the close. Strict xfail."},
                 {"id": "benchmark_price_index", "direction": "favours_strategy",
                  "note": "The benchmark omits dividends; a total-return benchmark would be harder to beat."},
                 {"id": "benchmark_pays_no_costs", "direction": "against_strategy",

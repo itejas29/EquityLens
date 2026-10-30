@@ -1,20 +1,20 @@
 {
-  "exported_at": "2026-09-13T05:48:41.499985+00:00",
+  "exported_at": "2026-10-30T10:11:37.041965+00:00",
   "account": {
     "account_id": 6,
     "virtual_capital": "1000000.00",
-    "cash": "636941.57",
+    "cash": "874585.50",
     "created_at": "2026-08-25T09:12:38.897912+00:00"
   },
   "reconciliation": {
     "identity": "cash == virtual_capital - sum(open cost_basis) + sum(closed pnl)",
     "trades": 12,
-    "open_trades": 3,
-    "closed_trades": 9,
-    "sum_open_cost_basis": "376804.63",
-    "sum_closed_pnl": "13746.20",
-    "expected_cash": "636941.57",
-    "stored_cash": "636941.57",
+    "open_trades": 1,
+    "closed_trades": 11,
+    "sum_open_cost_basis": "124938.90",
+    "sum_closed_pnl": "-475.60",
+    "expected_cash": "874585.50",
+    "stored_cash": "874585.50",
     "residual": "0.00",
     "trades_matched_to_a_signal": 12
   },
@@ -231,7 +231,7 @@
       "symbol": "ATHERENERG",
       "sector": "Consumer Cyclical",
       "side": "buy",
-      "status": "open",
+      "status": "closed",
       "signal_id": 161,
       "signal_date": "2026-09-02",
       "signal_timestamp": "2026-09-02T03:45:57.166313+00:00",
@@ -244,10 +244,10 @@
       "cost_basis": "126088.21",
       "stop_level": "1471.74",
       "target_price": "2233.33",
-      "exit_timestamp": null,
-      "exit_price": null,
-      "exit_reason": null,
-      "net_pnl": null
+      "exit_timestamp": "2026-10-02T03:52:36.304271+00:00",
+      "exit_price": "1405.26",
+      "exit_reason": "stop",
+      "net_pnl": "-23504.50"
     },
     {
       "trade_id": 26,
@@ -277,7 +277,7 @@
       "symbol": "INDSWFTLAB",
       "sector": "Healthcare",
       "side": "buy",
-      "status": "open",
+      "status": "closed",
       "signal_id": 179,
       "signal_date": "2026-09-04",
       "signal_timestamp": "2026-09-04T03:45:13.060680+00:00",
@@ -290,10 +290,10 @@
       "cost_basis": "125777.52",
       "stop_level": "299.85",
       "target_price": "518.40",
-      "exit_timestamp": null,
-      "exit_price": null,
-      "exit_reason": null,
-      "net_pnl": null
+      "exit_timestamp": "2026-10-02T03:52:36.377129+00:00",
+      "exit_price": "394.91",
+      "exit_reason": "regime",
+      "net_pnl": "9282.70"
     }
   ]
 }
