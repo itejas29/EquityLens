@@ -4,6 +4,51 @@ A research and paper-trading platform for NSE (Indian stock exchange) equities: 
 
 **This is a research tool, not investment advice.** No real-money execution. Past performance does not indicate future returns.
 
+## What the research found
+
+The live strategy, V1, was measured until the measurement could be trusted, and
+then it showed no edge. V1 is 12-month-minus-1-month momentum: 10 stocks,
+rebalanced monthly, behind a 200-day market regime filter.
+
+- **The engine was audited first.** Two execution defects were fixed:
+  - stops that gapped down filled at a price the stock never traded at (#19);
+  - entries filled at the same close the signal was computed from (#20).
+
+  Fixing them *raised* V1's backtest on the same data, from −0.46 to +3.65
+  percentage points per 6-month fold against NIFTY 50. The old engine had been
+  buying half an ATR above the signal close.
+- **Survivorship removed the edge**
+  ([Phase 24](docs/experiments/phase24_survivorship/FINDINGS.md)). Each fold's
+  universe was rebuilt from NSE's own daily bhavcopies: 3,974,703 rows over
+  2,510 trading days, including 71 companies no longer listed.
+  - On today's survivors, V1 beat NIFTY by +3.04pp a fold (median +2.40).
+  - On the universe as it actually was, it beat NIFTY by +0.04pp a fold
+    (median −0.03).
+- **Published alternatives did no better**
+  ([Phase 25](docs/experiments/phase25_literature_candidates/FINDINGS.md)). Four
+  alternatives were each pre-registered and run on the survivorship-free
+  universe: residual momentum, nearness to the 52-week high, momentum plus low
+  volatility, and a gradient-boosted ML ranker.
+  - Every one had a negative median excess over NIFTY 50.
+  - The ML ranker was the weakest.
+  - All of them trailed an equal-weight basket of the same 500 stocks.
+- **The live record agrees**
+  ([forward record](docs/experiments/forward_exit_diagnosis/FINDINGS.md)). The
+  published calls were scored the way a follower would have traded them: limit
+  fills, 0.24% costs, one position per stock. Over 20 sessions they did no
+  better than an equal-weight basket of their universe (−0.04%).
+- **The one rule with an effect is a crash brake, and it is insurance**
+  ([Phase 26](docs/experiments/phase26_crash_brake/FINDINGS.md)). Holding NIFTY
+  only while it was above its 200-day average, 2008–2026:
+  - cut the worst loss from −45.4% to −25.5%;
+  - cut the annual return from 10.0% to 6.0%.
+
+The dashboard serves a strategy verdict generated from the Phase 24 backtest and
+the live record: Measurement PASS, Edge FAIL, Promotion BLOCKED
+([audit closure](docs/audit/momentum_v1.0/momentum_v1.0_audit_closure.md)).
+Every experiment from Phase 23 on had its rules committed before it ran. Any
+later change is logged in its pre-registration.
+
 ## What it does
 
 - Pulls NSE price history and fundamentals from Yahoo Finance (`yfinance`)
@@ -12,6 +57,7 @@ A research and paper-trading platform for NSE (Indian stock exchange) equities: 
 - Computes ATR-based entry zone / stop-loss / target for each stock
 - Builds a capital-sized, sector-capped, risk-appetite-aware portfolio from the scored universe
 - Backtests that strategy point-in-time on the data (every rebalance scores only rows dated on or before that day), with transaction costs and slippage, against a NIFTY 50 buy-and-hold benchmark. Universe **membership** is not point-in-time by default — see Limitations
+- Runs pre-registered research phases against a local lab database: walk-forward folds, survivorship-free universes rebuilt from NSE bhavcopies, and a verdict generator that grades the strategy from test outcomes (`docs/experiments/`, `docs/audit/`)
 - Trains a small secondary ML model (LogisticRegression / RandomForest) as an *additional* probability signal — never blended into the rule-based score
 - Supports paper trading (virtual buy/sell against real prices) and a watchlist
 - Redis caching + per-user rate limiting on the compute-heavy endpoints
@@ -82,7 +128,8 @@ All endpoints are under `/api/v1`. `*` = requires `Authorization: Bearer <token>
 Everything that writes, fetches from upstream, or spends real compute requires
 a token. Read endpoints do not. `/auth/login` and `/auth/register` are limited
 to 20 requests/minute per IP; the analysis endpoints to 100/minute per user
-(per IP when anonymous).
+(per IP when anonymous). The table covers the core endpoints; FastAPI's `/docs`
+page lists every route.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -104,6 +151,8 @@ to 20 requests/minute per IP; the analysis endpoints to 100/minute per user
 | GET | `/daily-signals` | `?date=`, defaults to most recent published shortlist |
 | GET | `/daily-signals/dates` | dates with a published shortlist |
 | POST | `/daily-signals/run` * | manual trigger for the 09:15 IST job, rate-limited |
+| GET | `/daily-signals/track-record/realistic` | the published calls scored as a follower would have traded them |
+| GET | `/strategy-verdict` | the current strategy verdict, served from a committed artifact |
 | POST | `/stocks/{symbol}/score` | rate-limited |
 | POST | `/scoring/run-universe` * | rate-limited, invalidates scored-universe cache |
 | GET | `/recommendations` | `?min_score=&sector=&limit=`, rate-limited |
@@ -202,8 +251,7 @@ live price sits against the frozen entry zone. Price above the zone is always
 a WAIT: past the entry range the stop is proportionally further away, which
 erodes the reward the target was set for. This is a private tool for a known
 group, not a published research product; the decisive wording does not come
-with any claim of accuracy, and the measured backtest below still shows the
-strategy underperforming a NIFTY 50 buy-and-hold over the tested window.
+with any claim of accuracy, and the research below finds no edge over NIFTY 50.
 
 ## Scoring methodology
 
@@ -242,56 +290,109 @@ Two things about this are easy to misread:
 
 ## Live track record — results as measured
 
-Forward, out-of-sample, and the only evidence here that no methodology argument
-can take away. Measured 2026-09-10 over 168 signals published since 2026-08-14:
+Forward and out-of-sample. Measured 2026-10-30 on a read-only export of
+production: 296 calls published on 37 dates (2026-08-14 → 2026-10-30), covering
+59 stocks. `GET /daily-signals/track-record/realistic` and the Track Record page
+compute the same record live.
 
-| horizon | n | avg return | from entry | NIFTY | **edge** | win rate |
+The calls are scored the way someone following them could have traded:
+- **Fill:** a limit order at the top of the entry zone. It fills at the open if
+  the stock opened at or below that level, at the level if the day traded down
+  to it, and otherwise counts as a miss.
+- **Costs:** 0.24% round trip.
+- **One position per stock:** a repeat call on a stock already held adds
+  nothing. The 296 calls became 66 positions in 45 stocks.
+- **Exit:** the stop or the target, whichever is touched first, within 20
+  sessions.
+- **Clean days only:** 10 dates are scored separately. Their shortlists were
+  built from their own session's close, published after 15:30, or dated on a
+  closed day.
+
+| Sessions | n | Mean net | Win rate | vs NIFTY 50 | vs NIFTY200 Momentum 30 (MOM30IETF) | vs equal-weight universe |
 |---|---|---|---|---|---|---|
-| 1d | 140 | −0.43% | −1.82% | −0.22% | **−1.60%** | 50.0% |
-| 5d | 109 | −1.78% | −2.98% | −0.75% | **−2.23%** | 45.0% |
-| 10d | 72 | −1.98% | −2.69% | −1.51% | **−1.18%** | 41.7% |
-| 20d | 0 | — | — | — | — | — |
+| 1 | 60 | −0.46% | 58.3% | −0.51 | −1.10 | −1.16 |
+| 5 | 43 | −0.23% | 39.5% | +0.48 | +0.15 | −1.10 |
+| 10 | 43 | +0.86% | 53.5% | +2.46 | +2.55 | +0.41 |
+| 20 | 37 | −0.02% | 45.9% | +3.40 | +3.73 | −0.04 |
 
-3 targets hit against 14 stops. The 20-day row is empty because the app has
-only published since 2026-08-14 and no signal is yet 20 trading days old.
+**The last column answers "does the selection work".** The picks beat the
+large-cap indices only because they were smaller stocks, and smaller stocks as
+a whole fell less in these weeks. An equal-weight basket of the whole universe
+did as well: over 20 sessions, −0.04% (95% interval −3.19 to +3.11).
 
-**`from entry` is the column that counts.** `avg return` is measured from the
-reference close each signal was built on; nobody can buy there. `from entry`
-re-bases the identical signals onto the top of the published entry zone — the
-worst fill inside the range the call told you to buy in, and the only one of the
-two obtainable. Across all 168 signals that zone top sits a mean of 1.276% above
-the reference close. **Edge** is the average of each signal's own difference
-against NIFTY over its own window, computed from entry.
+Stops were hit at the rate a drift-free price path predicts: 5 observed against
+5.8 expected. Six entry weeks in one falling market cannot establish or rule out
+an edge on their own. Full write-up:
+[`docs/experiments/forward_exit_diagnosis/FINDINGS.md`](docs/experiments/forward_exit_diagnosis/FINDINGS.md).
 
-The sample is small and the window is one month — these are not yet a verdict,
-and the page says so. But every horizon is negative, the win rate falls as the
-horizon lengthens, and stops are hit nearly five times more often than targets.
-See [`docs/audit/track-record-basis.md`](docs/audit/track-record-basis.md).
+## Backtest research — results as measured
 
-## Backtest — results as measured
+**Method:**
+- **Folds:** 16 walk-forward folds, each a 6-month test window, 2018-04 →
+  2026-03.
+- **Strategy:** V1 is frozen
+  ([`backend/app/core/v1_strategy.py`](backend/app/core/v1_strategy.py)).
+- **Costs and timing:** 0.12% round trip plus 0.05% slippage per fill. A
+  rebalance decided at a close trades in the next session.
+- **Benchmark:** the NIFTY 50 price index. It leaves out dividends (roughly
+  1–1.5% a year), which flatters every strategy compared with it.
+- **Universe, from Phase 24 on:** each fold's top 500 NSE company shares by
+  traded value before the fold, delisted companies included, rebuilt from NSE's
+  own bhavcopies.
 
-One example run, exactly as returned by `POST /backtest` — not tuned, not cherry-picked. It dates from when the universe was 40 seeded stocks; it is now ~500, so this table is a historical record of one run rather than a current measurement:
+Excess return over NIFTY 50, in percentage points per 6-month fold:
 
-**Config**: `start_date=2025-03-01, end_date=2026-08-01, initial_capital=₹500,000, risk_appetite=moderate, rebalance_frequency=monthly, horizon_days=90, transaction_cost_pct=0.12% (round-trip), slippage_pct=0.05%, risk_free_rate=6.5%`
+| Phase | Universe | Ranking | Mean | Median | Folds beaten |
+|---|---|---|---|---|---|
+| 23, old engine | today's survivors | V1, 10 stocks | −0.46 | −1.03 | 8 of 16 |
+| 23, fixed engine | today's survivors | V1, 10 stocks | +3.65 | +3.10 | 9 of 16 |
+| 24 | today's survivors | V1, 10 stocks | +3.04 | +2.40 | 10 of 16 |
+| 24 | **survivorship-free** | V1, 10 stocks | **+0.04** | **−0.03** | 8 of 16 |
+| 25 | survivorship-free | V1's ranking, 30 stocks | +0.40 | −0.63 | 8 of 16 |
+| 25 | survivorship-free | residual momentum | +0.02 | −1.14 | 5 of 16 |
+| 25 | survivorship-free | nearness to 52-week high | −1.12 | −1.86 | 5 of 16 |
+| 25 | survivorship-free | momentum + low volatility | −0.42 | −1.20 | 7 of 16 |
+| 25 | survivorship-free | ML ranker (gradient-boosted trees) | −1.62 | −2.05 | 5 of 16 |
+| 25 | survivorship-free | *equal-weight basket, no ranking* | *+1.84* | *+2.28* | *9 of 16* |
 
-| | Strategy | NIFTY 50 buy & hold |
-|---|---|---|
-| Total return | 4.22% | 10.24% |
-| CAGR | 2.97% | 7.16% |
-| Sharpe | -0.288 | 0.110 |
-| Sortino | -0.366 | 0.163 | *(overstated in magnitude — see note)* |
-| Max drawdown | -9.14% (132 days) | -15.18% (140 days) |
-| Final equity | ₹521,076 | ₹551,184 |
+**Reading the table:**
+- **The two survivors-only rows differ because of how they were ranked:**
+  Phase 23 ranked its universe by Yahoo's traded value, Phase 24 by NSE's.
+- **Phase 24's comparison is like for like:** the same ranking, with and without
+  delisted companies. It puts the whole of V1's backtest excess down to
+  survivorship, +3.00pp a fold.
+- **Phase 25 found no candidate:** it tested four published alternatives
+  against a pre-registered rule, and none qualified.
 
-Strategy-only: 88 trades, 38.64% win rate, avg win ₹4,933 / avg loss -₹2,720, profit factor 1.14, avg holding period 26.9 days.
+**What does have an effect is V1's regime filter**, the rule that cuts exposure
+when NIFTY falls below its 200-day average. In the COVID fold, NIFTY fell 38% at
+its worst, while no Phase 25 ranking fell more than 6–9%. In rallies the same
+rule gave back about as much.
 
-The strategy underperformed the benchmark on raw return in this window but took on less drawdown risk to do it — reported plainly either way.
+Phase 26 tested the rule on NIFTY itself, 2008-07 → 2026-10, at 0.10% per trade
+with cash earning nothing:
 
-Three caveats on this table, all measured rather than hedged:
+| | Return a year | Worst loss | ₹10 lakh became, after tax | Switches a year |
+|---|---|---|---|---|
+| Buy and hold NIFTY 50 | 10.0% | −45.4% | ₹51.5 lakh | 0 |
+| 200-day rule (the registered test) | 6.0% | −25.5% | ₹25.8 lakh | 7.9 |
+| 10-month rule | 6.9% | −29.0% | ₹29.5 lakh | 2.0 |
+| V1's rule (25% held below the average) | 7.0% | −24.4% | ₹30.1 lakh | 7.9 |
 
-- **The Sortino figures are overstated in magnitude by roughly 7–18%.** The denominator was the standard deviation of the negative days rather than the downside deviation about the target. Fixed 2026-09-10; this stored table predates the fix and would need a re-run to refresh. Sharpe is unaffected. [`docs/audit/backtest-metrics.md`](docs/audit/backtest-metrics.md)
-- **The universe is survivors-only.** 67 inactive stocks holding 112,385 bars are excluded from every backtest, which inflates strategy returns. [`docs/audit/survivorship-bias.md`](docs/audit/survivorship-bias.md)
-- **The benchmark pays no costs while the strategy pays both.** That understates the strategy's edge by 0.22pp. The two biases run in opposite directions and partly offset. [`docs/audit/net-bias.md`](docs/audit/net-bias.md) **Backtest scoring uses only the technical + risk sub-scores** (renormalized 0.6/0.4), not the full four-score composite: `fundamentals` holds one snapshot per stock, not a historical time series, so applying it to a rebalance date in the past would be look-ahead bias. This means backtest results measure a price-action strategy, not the fundamentals-aware strategy used for live recommendations.
+The 200-day rule passed its registered test narrowly. It cut the worst loss
+roughly in half and earned slightly more return per unit of that loss, in both
+halves of the period. But it fails at 0.25% per trade, and cash would have had
+to earn 13.5% a year for it to match buy-and-hold's return.
+
+It worked in sudden crashes: 0% against −45% in 2008, and −6% against −38% in
+2020. It saved little in the slow declines of 2015–16 and 2024–25. It is
+insurance, not a way to beat NIFTY.
+
+`POST /backtest` still runs on today's universe
+(`BacktestConfig.include_inactive` is off by default), so its results carry the
+survivorship bias measured above. Its backtest scoring uses only the technical
+and risk sub-scores: `fundamentals` holds one snapshot per stock, and applying
+it to past rebalance dates would be look-ahead.
 
 ## ML results — as measured
 
@@ -341,10 +442,26 @@ strong did not survive a real dataset.
 - `ml_probability` is an **additional** field on recommendations, never folded
   into `overall_score`. Full writeup: [`docs/ml_results.md`](docs/ml_results.md).
 
+**A redesigned ranker did no better**
+([Phase 25](docs/experiments/phase25_literature_candidates/FINDINGS.md)). It
+changed what the old model got wrong:
+- **Target:** each stock's rank within its universe over the next month. The old
+  target, "beats NIFTY over 20 days", is mostly a market forecast.
+- **Features:** 13 price and volume features, with no look-ahead fundamentals.
+- **Training:** retrained at each fold on what preceded it, on the
+  survivorship-free universe.
+
+Judged by the portfolio it produced, it was the weakest of five rankings: median
+−2.05pp a fold against NIFTY 50. That is consistent with Avramov, Cheng &
+Metzker (2023) for US stocks: once microcaps and distressed firms are excluded
+and trading costs counted, most of machine learning's stock-picking profit
+disappears.
+
 ## Tests
 
-`pytest` runs 127 tests against SQLite in memory plus a real Postgres for the
-row-lock and migration checks. Run them with:
+`pytest` collects 447 tests. 446 run against SQLite in memory; the row-lock
+test needs a real Postgres and is skipped unless `AUDIT_POSTGRES_URL` points at
+one. Measured 2026-10-31: 446 passed, 1 skipped. Run them with:
 
 ```bash
 cd backend && pip install -r requirements-dev.txt && pytest
@@ -361,7 +478,8 @@ the production image on every push and pull request. Deploys stay manual.
 - **yfinance data quality**: fundamentals (`roe`, `roce`, `debt_to_equity`, etc.) are frequently missing for Indian tickers — `roce` has *no* yfinance equivalent and is always NULL. Occasional single-day price gaps occur (a stock's most recent close can be NULL); every downstream computation (indicators, scores, levels) correctly propagates that as NULL rather than fabricating a value.
 - **Fundamentals are a single snapshot**, not a time series — this is why backtesting and the ML feature set both have documented workarounds/exclusions rather than pretending to have historical fundamentals.
 - **Corporate actions**: symbols can change (e.g. demergers) — the seed universe was corrected for three such cases (Tata Motors → TMCV, Vedanta → VEDL, LTIM unresolved on Yahoo) found via live verification, not assumed. Separately, unadjusted splits leave a step in the stored price series: nine were found in production on 2026-09-10, and stocks carrying one inside the momentum lookback are excluded from ranking rather than scored — see [docs/audit/price-series-discontinuities.md](docs/audit/price-series-discontinuities.md).
-- **Survivorship bias in the default backtest universe.** Point-in-time applies to the data, not to membership: the universe is `is_active == True`, i.e. the stocks in it *today*, projected backwards. Measured 2026-09-10: 67 inactive stocks holding 112,385 bars are excluded from every backtest, and the active universe itself grows from 315 names with 2016 data to 500 in 2026. This **inflates** backtested returns. `BacktestConfig.include_inactive` turns it off; the default is left biased so published results stay reproducible. The gap has not yet been quantified. Full write-up in [docs/audit/survivorship-bias.md](docs/audit/survivorship-bias.md).
+- **Survivorship bias in the API's default backtest.** `POST /backtest` uses the stocks in the universe *today*, projected backwards; `BacktestConfig.include_inactive` turns that off. Phase 24 measured the cost on V1: a survivors-only universe overstates the excess over NIFTY 50 by +3.00pp per 6-month fold. Research from Phase 24 on uses survivorship-free universes rebuilt from NSE's bhavcopies. Even those are a lower bound on losses, because a delisted position exits at its last traded price. See [docs/audit/survivorship-bias.md](docs/audit/survivorship-bias.md) and [Phase 24](docs/experiments/phase24_survivorship/FINDINGS.md).
+- **Benchmarks exclude dividends.** NIFTY 50 here is Yahoo's price index (`^NSEI`). Leaving out roughly 1–1.5% a year of dividends flatters every strategy compared with it.
 - **Not implemented**: real-money execution (by design), shorting in paper trading (long-only), short-selling generally, options/derivatives, intraday data (daily bars only), realized P&L for closed portfolio holdings (schema has no `exit_price` column — only paper trading tracks that).
 - **Backtest and paper trading transaction costs** are a flat assumption (0.12% round-trip), not a real broker's actual fee schedule.
 - Nothing in this repository is investment advice. All scores, backtests, and ML outputs are descriptive analysis of historical data, not predictions or recommendations to trade.
