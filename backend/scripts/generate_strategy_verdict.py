@@ -10,9 +10,15 @@
 3. Computes the verdict with services/strategy_verdict.compute_verdict.
 4. Writes backend/app/core/verdict_artifacts/momentum_v1.0.verdict.json.
 
-tests/test_strategy_verdict_artifact.py is EXCLUDED from this run and says so in
-the artifact. It verifies the committed artifact, so it cannot be an input to
-the artifact — including it would make the first generation fail its own check.
+Tests of what is built FROM the verdict are EXCLUDED from this run, and the
+artifact says so: tests/test_strategy_verdict_artifact.py verifies the
+committed artifact, and tests/test_audit_closure_reports.py verifies the
+audit-closure deliverables that scripts/build_audit_closure.py builds from it.
+Neither can be an input to the artifact. Included, any regeneration after the
+evidence changes fails on downstream files that can only be rebuilt once the
+new verdict exists (first hit 2026-10-30, the first regeneration since the
+closure package was added). Order: assemble evidence, generate the verdict,
+then build the closure package from it.
 """
 
 import argparse
@@ -37,7 +43,11 @@ from app.services.strategy_verdict import compute_verdict  # noqa: E402
 
 EVIDENCE = BACKEND / "app/core/verdict_artifacts/momentum_v1.0.evidence.json"
 ARTIFACT = BACKEND / "app/core/verdict_artifacts/momentum_v1.0.verdict.json"
-SELF_CHECK = "tests/test_strategy_verdict_artifact.py"
+DOWNSTREAM = {
+    "tests/test_strategy_verdict_artifact.py": "verifies this artifact, so cannot be an input to it",
+    "tests/test_audit_closure_reports.py": (
+        "verifies the audit-closure deliverables, which are built from this artifact"),
+}
 
 # Worst outcome wins when a function has several parametrized cases.
 _RANK = {"passed": 0, "skipped": 1, "xfailed": 2, "failed": 3}
@@ -107,14 +117,14 @@ def main() -> int:
             if args.postgres_url:
                 env["AUDIT_POSTGRES_URL"] = args.postgres_url
             subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                 f"--junitxml={report}", "--ignore", SELF_CHECK],
+                [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}",
+                 *[arg for path in DOWNSTREAM for arg in ("--ignore", path)]],
                 cwd=BACKEND, env=env,
             )
             xml_text = report.read_text()
 
     outcomes, suite = parse_junit(xml_text)
-    suite["excluded"] = [f"{SELF_CHECK}: verifies this artifact, so cannot be an input to it"]
+    suite["excluded"] = [f"{path}: {why}" for path, why in DOWNSTREAM.items()]
 
     evidence = json.loads(EVIDENCE.read_text())
     verdict = compute_verdict(
