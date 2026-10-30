@@ -38,7 +38,6 @@ def load_closes() -> pd.Series:
 
 def data_checks(c: pd.Series) -> dict:
     moves = c.pct_change().dropna()
-    gaps = pd.Series(c.index[1:], index=c.index[1:]).diff()
     return {"sessions": len(c), "first": str(c.index[0]), "last": str(c.index[-1]),
             "non_positive": int((c <= 0).sum()),
             "moves_over_12pct": {str(d): round(float(m) * 100, 2) for d, m in moves[moves.abs() > 0.12].items()},
@@ -103,13 +102,13 @@ def main() -> None:
     a, b = rec["arms"]["R1"], rec["arms"]["BH"]
 
     def passes(x, y):
-        return (x["max_drawdown_pct"] / y["max_drawdown_pct"] <= DD_RATIO_MAX
-                and x["calmar"] is not None and y["calmar"] is not None and x["calmar"] > y["calmar"])
+        return bool(x["max_drawdown_pct"] / y["max_drawdown_pct"] <= DD_RATIO_MAX
+                    and x["calmar"] is not None and y["calmar"] is not None and x["calmar"] > y["calmar"])
 
     checks_ = {"whole": passes(a, b), "first_half": passes(a["first_half"], b["first_half"]),
                "second_half": passes(a["second_half"], b["second_half"])}
     rec["decision"] = {**checks_, "r1_passes": all(checks_.values()),
-                       "r1_cagr_above_bh": a["cagr_pct"] > b["cagr_pct"]}
+                       "r1_cagr_above_bh": bool(a["cagr_pct"] > b["cagr_pct"])}
     (OUT / "results.json").write_text(json.dumps(rec, indent=2, default=str))
     for r in RULES:
         x = rec["arms"][r]

@@ -1,0 +1,232 @@
+{
+  "experiment": "phase26_crash_brake",
+  "data": {
+    "sessions": 4690,
+    "first": "2007-09-17",
+    "last": "2026-10-29",
+    "non_positive": 0,
+    "moves_over_12pct": {
+      "2008-10-24": -12.2,
+      "2009-05-18": 17.74,
+      "2020-03-23": -12.98
+    },
+    "gaps_over_5_days": [
+      "2014-10-07"
+    ]
+  },
+  "start": "2008-07-08",
+  "end": "2026-10-29",
+  "half_split": "2017-09-20",
+  "cost": 0.001,
+  "cash_yield": 0.0,
+  "arms": {
+    "BH": {
+      "cagr_pct": 10.014259242942348,
+      "max_drawdown_pct": -45.36836627731192,
+      "volatility_pct": 19.515887675757295,
+      "sharpe": 0.6008569407795452,
+      "calmar": 0.22073219876886632,
+      "switches_per_year": 0.0,
+      "invested_share_pct": 100.0,
+      "final_value": 5739158.854079795,
+      "tax_paid": 0.0,
+      "first_half": {
+        "cagr_pct": 10.673118882280018,
+        "max_drawdown_pct": -45.36836627731192,
+        "calmar": 0.2352546445477252
+      },
+      "second_half": {
+        "cagr_pct": 9.376470770238976,
+        "max_drawdown_pct": -38.43985245274211,
+        "calmar": 0.24392577421483067
+      },
+      "downside_capture_pct": 100.0,
+      "after_tax": {
+        "final_value": 5146763.99731982,
+        "tax_paid": 592394.8567599744,
+        "cagr_pct": 9.361547193584618
+      },
+      "cost_025pct": {
+        "cagr_pct": 9.996233425662249,
+        "max_drawdown_pct": -45.368366277311914
+      },
+      "break_even_cash_yield_pct": null,
+      "in_bh_drawdowns_pct": [
+        -45.37,
+        -27.89,
+        -22.52,
+        -38.44,
+        -17.23,
+        -15.77,
+        -15.56
+      ]
+    },
+    "R1": {
+      "cagr_pct": 6.01689794951934,
+      "max_drawdown_pct": -25.531175784034655,
+      "volatility_pct": 12.931014603852578,
+      "sharpe": 0.5284389854643031,
+      "calmar": 0.23566865860059102,
+      "switches_per_year": 7.8654104979811565,
+      "invested_share_pct": 71.11358574610244,
+      "final_value": 2914522.446272851,
+      "tax_paid": 0.0,
+      "first_half": {
+        "cagr_pct": 6.057994477826911,
+        "max_drawdown_pct": -25.531175784034655,
+        "calmar": 0.23727831922316486
+      },
+      "second_half": {
+        "cagr_pct": 5.975385133004529,
+        "max_drawdown_pct": -24.338208661541415,
+        "calmar": 0.24551458228093312
+      },
+      "downside_capture_pct": 62.278853760617736,
+      "after_tax": {
+        "final_value": 2577017.1831959453,
+        "tax_paid": 234690.85406928015,
+        "cagr_pct": 5.306602233540225
+      },
+      "cost_025pct": {
+        "cagr_pct": 4.773443906130126,
+        "max_drawdown_pct": -29.657203323957017
+      },
+      "break_even_cash_yield_pct": 13.500747972411778,
+      "in_bh_drawdowns_pct": [
+        0.0,
+        -15.39,
+        -20.4,
+        -5.99,
+        -11.68,
+        -13.78,
+        -6.82
+      ]
+    },
+    "R2": {
+      "cagr_pct": 6.878482600657887,
+      "max_drawdown_pct": -28.95182744766911,
+      "volatility_pct": 13.11571011962672,
+      "sharpe": 0.5863031760138295,
+      "calmar": 0.2375837108414263,
+      "switches_per_year": 1.9663526244952891,
+      "invested_share_pct": 70.42316258351893,
+      "final_value": 3380052.6945953197,
+      "tax_paid": 0.0,
+      "first_half": {
+        "cagr_pct": 7.421463956409591,
+        "max_drawdown_pct": -28.95182744766911,
+        "calmar": 0.25633835963633056
+      },
+      "second_half": {
+        "cagr_pct": 6.332575393509199,
+        "max_drawdown_pct": -19.671373400581228,
+        "calmar": 0.32191831574515745
+      },
+      "downside_capture_pct": 55.72845108772084,
+      "after_tax": {
+        "final_value": 2950081.1920753643,
+        "tax_paid": 283383.3270847214,
+        "cagr_pct": 6.087143839807663
+      },
+      "cost_025pct": {
+        "cagr_pct": 6.563704851730456,
+        "max_drawdown_pct": -29.58839422216448
+      },
+      "break_even_cash_yield_pct": 10.133477404579025,
+      "in_bh_drawdowns_pct": [
+        0.0,
+        -17.73,
+        -15.82,
+        -10.04,
+        -13.45,
+        -9.52,
+        -5.65
+      ]
+    },
+    "R3": {
+      "cagr_pct": 7.041712307471992,
+      "max_drawdown_pct": -24.407756031262494,
+      "volatility_pct": 13.332966833460139,
+      "sharpe": 0.5908533463456859,
+      "calmar": 0.28850306019335276,
+      "switches_per_year": 7.8654104979811565,
+      "invested_share_pct": 77.9700624856221,
+      "final_value": 3475821.3025710043,
+      "tax_paid": 0.0,
+      "first_half": {
+        "cagr_pct": 7.250277420665641,
+        "max_drawdown_pct": -21.86710976191044,
+        "calmar": 0.3315608463855908
+      },
+      "second_half": {
+        "cagr_pct": 6.837056376626749,
+        "max_drawdown_pct": -24.407756031262494,
+        "calmar": 0.2801181873446111
+      },
+      "downside_capture_pct": 71.34149511157224,
+      "after_tax": {
+        "final_value": 3014430.372024725,
+        "tax_paid": 311838.0850375177,
+        "cagr_pct": 6.2122540045917995
+      },
+      "cost_025pct": {
+        "cagr_pct": 6.097775238509562,
+        "max_drawdown_pct": -26.501384144524785
+      },
+      "break_even_cash_yield_pct": 13.077528651610915,
+      "in_bh_drawdowns_pct": [
+        -12.63,
+        -18.39,
+        -20.7,
+        -14.1,
+        -13.0,
+        -14.23,
+        -8.98
+      ]
+    }
+  },
+  "bh_drawdowns_deeper_than_15pct": [
+    {
+      "peak": "2008-08-11",
+      "trough": "2008-10-27",
+      "bh_pct": -45.37
+    },
+    {
+      "peak": "2010-11-09",
+      "trough": "2011-12-20",
+      "bh_pct": -27.89
+    },
+    {
+      "peak": "2015-03-03",
+      "trough": "2016-02-25",
+      "bh_pct": -22.52
+    },
+    {
+      "peak": "2020-01-14",
+      "trough": "2020-03-23",
+      "bh_pct": -38.44
+    },
+    {
+      "peak": "2021-10-18",
+      "trough": "2022-06-17",
+      "bh_pct": -17.23
+    },
+    {
+      "peak": "2024-09-26",
+      "trough": "2025-03-04",
+      "bh_pct": -15.77
+    },
+    {
+      "peak": "2026-01-02",
+      "trough": "2026-10-08",
+      "bh_pct": -15.56
+    }
+  ],
+  "decision": {
+    "whole": true,
+    "first_half": true,
+    "second_half": true,
+    "r1_passes": true,
+    "r1_cagr_above_bh": false
+  }
+}
