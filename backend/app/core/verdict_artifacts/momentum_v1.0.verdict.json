@@ -1,42 +1,42 @@
 {
-  "code_revision": "ee09974f8414b4925ec0a4babaccba01db7060b1",
-  "content_sha256": "d74ebd17fb0fdcb0d6f04d7d7bc3d535446478fb9d16a3a3261371d08788d217",
-  "data_snapshot": "sha256:b9a7552043188e6905e68ec750e576944909b777b6a3fcf7534c82a1d196de1b",
-  "edge_verdict": "BLOCKED",
+  "code_revision": "d764f98b66a153d8cdf1c5fed98a11096e4bec95",
+  "content_sha256": "cc157dc731c8c57cd3ae53ad4bdbe7e54922cb4979241fd943d19e0daab22f6e",
+  "data_snapshot": "sha256:19b670e09026cf99a42ef0807539dc7f12384ce889322025673c1b44ed170dad",
+  "edge_verdict": "FAIL",
   "evidence": {
     "benchmark": "NIFTY 50 price index (^NSEI via yfinance). A price index, not total return: it excludes dividends, so it understates what the benchmark actually returned.",
     "edge_checks": [
       {
-        "detail": "mean fold excess -0.84pp over 16 folds (strategy 5.38% vs benchmark 6.22%); threshold > 0.0pp",
+        "detail": "mean fold excess +3.65pp over 16 folds (strategy 9.88% vs benchmark 6.22%); threshold > 0.0pp",
         "evidence": [
-          "docs/experiments/phase20_holding_period/results.json"
+          "docs/experiments/phase23_normalized_momentum/results.json"
         ],
         "name": "beats_primary_benchmark_after_costs",
         "required": true,
-        "status": "FAIL"
+        "status": "PASS"
       },
       {
-        "detail": "median fold excess -1.88pp; beat the benchmark in 6 of 16 folds; threshold > 0.0pp",
+        "detail": "median fold excess +3.10pp; beat the benchmark in 9 of 16 folds; threshold > 0.0pp",
         "evidence": [
-          "docs/experiments/phase20_holding_period/results.json"
+          "docs/experiments/phase23_normalized_momentum/results.json"
         ],
         "name": "positive_median_fold_excess_return",
         "required": true,
-        "status": "FAIL"
+        "status": "PASS"
       },
       {
-        "detail": "dropping any one fold leaves mean excess between -3.04 and +0.75pp; removing fold(s) [1, 2, 10] alone flips the sign of the -0.84pp mean; PASS requires it positive after dropping every fold in turn",
+        "detail": "dropping any one fold leaves mean excess between +1.61 and +5.04pp; removing fold(s) none alone flips the sign of the +3.65pp mean; PASS requires it positive after dropping every fold in turn",
         "evidence": [
-          "docs/experiments/phase20_holding_period/results.json"
+          "docs/experiments/phase23_normalized_momentum/results.json"
         ],
         "name": "not_dependent_on_single_fold",
         "required": true,
-        "status": "FAIL"
+        "status": "PASS"
       },
       {
-        "detail": "mean fold max drawdown -14.65% vs benchmark -10.97% (-3.68pp); tolerance 5.0pp worse",
+        "detail": "mean fold max drawdown -12.90% vs benchmark -10.97% (-1.94pp); tolerance 5.0pp worse",
         "evidence": [
-          "docs/experiments/phase20_holding_period/results.json"
+          "docs/experiments/phase23_normalized_momentum/results.json"
         ],
         "name": "drawdown_within_tolerance",
         "required": true,
@@ -86,7 +86,7 @@
         "status": "NOT_EVALUATED"
       },
       {
-        "detail": "184 live signals; edge vs NIFTY from an obtainable entry: 1d -1.68pp (n=156), 5d -1.68pp (n=125), 10d -0.00pp (n=88); PASS requires every sufficiently-sampled horizon > 0.0pp",
+        "detail": "296 live signals; edge vs NIFTY from an obtainable entry: 1d -2.44pp (n=249), 5d -1.80pp (n=218), 10d -0.09pp (n=216), 20d +2.90pp (n=206); PASS requires every sufficiently-sampled horizon > 0.0pp",
         "evidence": [
           "live_track_record"
         ],
@@ -100,23 +100,20 @@
       "benchmark_mean_return_pct": 6.2237,
       "fold_whose_removal_raises_mean_most": 2,
       "folds": 16,
-      "folds_beating_benchmark": 6,
-      "folds_whose_removal_alone_flips_the_mean": [
-        1,
-        2,
-        10
-      ],
-      "leave_one_out_mean_excess_max_pp": 0.7533,
-      "leave_one_out_mean_excess_min_pp": -3.0427,
+      "folds_beating_benchmark": 9,
+      "folds_whose_removal_alone_flips_the_mean": [],
+      "leave_one_out_mean_excess_max_pp": 5.04,
+      "leave_one_out_mean_excess_min_pp": 1.606,
       "live_edge_from_entry_pct": {
-        "1": -1.68,
-        "10": -0.0,
-        "5": -1.68
+        "1": -2.44,
+        "10": -0.09,
+        "20": 2.9,
+        "5": -1.8
       },
-      "mean_fold_excess_pp": -0.8425,
-      "median_fold_excess_pp": -1.88,
-      "strategy_mean_max_drawdown_pct": -14.6513,
-      "strategy_mean_return_pct": 5.3812
+      "mean_fold_excess_pp": 3.6513,
+      "median_fold_excess_pp": 3.1,
+      "strategy_mean_max_drawdown_pct": -12.9025,
+      "strategy_mean_return_pct": 9.875
     },
     "governance_checks": [
       {
@@ -155,16 +152,6 @@
       },
       {
         "direction": "favours_strategy",
-        "id": "gap_down_stop_fill",
-        "note": "Stops fill at the stop price even when the session opened below it. Measurement defect, encoded as a strict xfail."
-      },
-      {
-        "direction": "not_established",
-        "id": "same_bar_entry",
-        "note": "Entries fill on the signal bar at entry_high derived from that bar's close. Unexecutable timing, but entry_high sits above the close. Strict xfail."
-      },
-      {
-        "direction": "favours_strategy",
         "id": "benchmark_price_index",
         "note": "The benchmark omits dividends; a total-return benchmark would be harder to beat."
       },
@@ -174,7 +161,7 @@
         "note": "The benchmark curve pays no transaction costs while the strategy does, understating the strategy by ~0.22pp (Phase 20 FINDINGS)."
       }
     ],
-    "live_signals_through": "2026-09-11",
+    "live_signals_through": "2026-10-30",
     "measurement_checks": [
       {
         "detail": "1 test(s) passed: signals and entries before a date are unaffected by bars after it",
@@ -195,22 +182,22 @@
         "status": "PASS"
       },
       {
-        "detail": "known defect (strict xfail): KNOWN DEFECT: a stop is filled at the stop price even when the session opened below it (backtest.py: `if low <= pos.stop_loss: exit_price = pos.stop_loss`). A gap-down fills at or below the open. Overstates backtest returns. Fixing it changes every published backtest.",
+        "detail": "1 test(s) passed: a gap through the stop fills at or below the open",
         "evidence": [
           "tests/test_backtest_execution.py::test_a_gap_down_through_the_stop_fills_at_the_open_not_the_stop"
         ],
         "name": "gap_down_stop_execution",
         "required": true,
-        "status": "FAIL"
+        "status": "PASS"
       },
       {
-        "detail": "known defect (strict xfail): KNOWN DEFECT: entries fill on the signal bar itself. On a rebalance day the snapshot is scored on bars up to and including that day's close, and the position is opened the same day at entry_high derived from that close. A signal computed from a close cannot be traded at that close; the live system publishes at 09:15 IST and fills next session. Direction of bias is not established: the timing is unexecutable but entry_high sits above the close, which is pessimistic on price.",
+        "detail": "1 test(s) passed: entries fill in the session after the signal, not on the signal bar",
         "evidence": [
           "tests/test_backtest_execution.py::test_entries_fill_in_the_session_after_the_signal"
         ],
         "name": "next_session_entry_execution",
         "required": true,
-        "status": "FAIL"
+        "status": "PASS"
       },
       {
         "detail": "5 test(s) passed: delisted names can be included, and a dead series is exited rather than carried",
@@ -300,7 +287,7 @@
         "status": "PASS"
       },
       {
-        "detail": "339 tests: 337 passed, 0 failed, 0 errors, 0 skipped, 2 known defects (xfail)",
+        "detail": "396 tests: 396 passed, 0 failed, 0 errors, 0 skipped, 0 known defects (xfail)",
         "evidence": [
           "test_run.suite"
         ],
@@ -309,7 +296,7 @@
         "status": "PASS"
       },
       {
-        "detail": "live AI paper account: 12 trades reconcile exactly — stored cash 636941.57 == virtual_capital - sum(open cost_basis) + sum(closed pnl) = 636941.57",
+        "detail": "live AI paper account: 12 trades reconcile exactly — stored cash 874585.50 == virtual_capital - sum(open cost_basis) + sum(closed pnl) = 874585.50",
         "evidence": [
           "paper_ledger.reconciliation"
         ],
@@ -321,16 +308,16 @@
     "test_run": {
       "outcomes": {
         "tests/test_backtest_execution.py::test_a_gap_down_through_the_stop_fills_at_the_open_not_the_stop": {
-          "message": "KNOWN DEFECT: a stop is filled at the stop price even when the session opened below it (backtest.py: `if low <= pos.stop_loss: exit_price = pos.stop_loss`). A gap-down fills at or below the open. Overstates backtest returns. Fixing it changes every published backtest.",
-          "status": "xfailed"
+          "message": "",
+          "status": "passed"
         },
         "tests/test_backtest_execution.py::test_costs_and_slippage_are_charged_on_both_legs_exactly": {
           "message": "",
           "status": "passed"
         },
         "tests/test_backtest_execution.py::test_entries_fill_in_the_session_after_the_signal": {
-          "message": "KNOWN DEFECT: entries fill on the signal bar itself. On a rebalance day the snapshot is scored on bars up to and including that day's close, and the position is opened the same day at entry_high derived from that close. A signal computed from a close cannot be traded at that close; the live system publishes at 09:15 IST and fills next session. Direction of bias is not established: the timing is unexecutable but entry_high sits above the close, which is pessimistic on price.",
-          "status": "xfailed"
+          "message": "",
+          "status": "passed"
         },
         "tests/test_backtest_execution.py::test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date": {
           "message": "",
@@ -464,13 +451,14 @@
       "suite": {
         "errors": 0,
         "excluded": [
-          "tests/test_strategy_verdict_artifact.py: verifies this artifact, so cannot be an input to it"
+          "tests/test_strategy_verdict_artifact.py: verifies this artifact, so cannot be an input to it",
+          "tests/test_audit_closure_reports.py: verifies the audit-closure deliverables, which are built from this artifact"
         ],
         "failures": 0,
-        "passed": 337,
+        "passed": 396,
         "skipped": 0,
-        "tests": 339,
-        "xfailed": 2
+        "tests": 396,
+        "xfailed": 0
       }
     },
     "thresholds": {
@@ -479,12 +467,12 @@
       "edge_min_median_fold_excess_pp": 0.0,
       "live_min_edge_from_entry_pct": 0.0
     },
-    "universe": "point-in-time top 500 by 20-day traded value at each fold start, drawn from a 1000-stock pool of currently active names"
+    "universe": "point-in-time top 500 by 20-day traded value at each fold start, drawn from a 1000-stock pool of currently active names (lab built 2026-10-30)"
   },
-  "generated_at": "2026-09-13T06:01:40.767033+00:00",
-  "measurement_verdict": "FAIL",
+  "generated_at": "2026-10-30T11:04:06.589415+00:00",
+  "measurement_verdict": "PASS",
   "promotion_verdict": "BLOCKED",
   "strategy_id": "momentum_v1.0",
   "strategy_version": "v1.1-momentum-eqwt-regime-trend5d",
-  "summary": "Measurement FAIL: 2 required validity check(s) failed (gap_down_stop_execution, next_session_entry_execution). Edge BLOCKED: not judged while measurement is FAIL. Of the 5 required edge check(s) that could be evaluated, 4 fail (beats_primary_benchmark_after_costs, positive_median_fold_excess_return, not_dependent_on_single_fold, live_paper_beats_benchmark). Promotion BLOCKED."
+  "summary": "Measurement PASS: all 13 required validity checks passed. Edge FAIL: 1 required edge check(s) failed (live_paper_beats_benchmark). Promotion BLOCKED."
 }

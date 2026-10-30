@@ -316,7 +316,8 @@ def build_closure(verdict: StrategyVerdict, evidence: dict, metrics: dict, ledge
     add(f"2. **What is the corrected performance?** Over {fig['folds']} walk-forward folds the strategy returned "
         f"{fig['strategy_mean_return_pct']:.2f}% per six-month fold against the benchmark's "
         f"{fig['benchmark_mean_return_pct']:.2f}%"
-        + (f", with {len(caveats)} recorded biases in that evidence ({', '.join(f'`{b}`' for b in caveats)})." if caveats else "."))
+        + (f", with {len(caveats)} recorded {'bias' if len(caveats) == 1 else 'biases'} in that evidence "
+           f"({', '.join(f'`{b}`' for b in caveats)})." if caveats else "."))
 
     primary, live_c = e_by["beats_primary_benchmark_after_costs"]["status"], e_by["live_paper_beats_benchmark"]["status"]
     q3 = "Yes" if primary == "PASS" and live_c == "PASS" else ("No" if primary == "FAIL" else "Not established")
@@ -514,7 +515,8 @@ def build_closure(verdict: StrategyVerdict, evidence: dict, metrics: dict, ledge
     add(f"- **First paper cohort:** {evidence['paper_ledger']['note']}")
     add(f"- **Precision:** backtest — {bt['precision']}. Live — {tr['note']}")
     add("- **Benchmark:** " + bt["benchmark"])
-    add("- **Published phases** have not been re-run with fixes #13, #18, #19 or #20.")
+    add("- **Earlier phases** (11–22) have not been re-run with fixes #13, #18, #19 or #20. Only Phase 23 — the "
+        "backtest evidence above — ran on the fixed engine.")
     add("")
 
     add("## What would change this verdict")

@@ -85,19 +85,25 @@ def test_conclusions_follow_the_verdict_rather_than_being_typed():
     evidence = json.loads(b.EVIDENCE.read_text())
     ledger = json.loads(b.LEDGER.read_text())
 
-    # A counterfactual verdict: measurement PASS, edge FAIL.
+    # The committed report states the real verdict: measurement PASS, and the
+    # edge failing on the live record alone.
+    original = (OUT / "momentum_v1.0_audit_closure.md").read_text()
+    assert "1. **Is the measurement system correct?** Yes — PASS." in original
+    assert "The strategy failed `live_paper_beats_benchmark`." in original
+    assert "Fix the open execution defects" not in original
+
+    # A counterfactual with an execution defect failing again must change every
+    # one of those conclusions — so they come from the verdict, not typed text.
     ev = json.loads(json.dumps(verdict.evidence))
     for c in ev["measurement_checks"]:
-        c["status"], c["detail"] = "PASS", "passed"
-    counterfactual = replace(verdict, measurement_verdict="PASS", edge_verdict="FAIL",
+        if c["name"] == "gap_down_stop_execution":
+            c["status"], c["detail"] = "FAIL", "known defect (strict xfail): counterfactual"
+    counterfactual = replace(verdict, measurement_verdict="FAIL", edge_verdict="BLOCKED",
                              promotion_verdict="BLOCKED", evidence=ev)
     text = b.build_closure(counterfactual, evidence, b.build_metrics(counterfactual, evidence, ledger), ledger)
 
-    assert "1. **Is the measurement system correct?** Yes — PASS." in text
-    assert "The strategy failed `beats_primary_benchmark_after_costs`" in text
-    assert "cannot yet certify" not in text
-    assert "Fix the open execution defects" not in text
+    assert "1. **Is the measurement system correct?** Not yet — FAIL." in text
+    assert "cannot yet certify" in text
+    assert "Fix the open execution defects (`gap_down_stop_execution`)" in text
+    assert "The strategy failed" not in text
 
-    original = (OUT / "momentum_v1.0_audit_closure.md").read_text()
-    assert "1. **Is the measurement system correct?** Not yet — FAIL." in original
-    assert "Fix the open execution defects" in original
