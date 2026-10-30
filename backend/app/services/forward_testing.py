@@ -1,6 +1,7 @@
 import logging
 from datetime import date as date_type
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session

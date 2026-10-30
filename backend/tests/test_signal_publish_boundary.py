@@ -208,3 +208,66 @@ def test_losing_a_publish_race_is_logged_not_retried(loop_harness, monkeypatch, 
 
     assert "reason=already_published" in caplog.text
     assert "Daily signal generation failed" not in caplog.text
+
+
+# ------------------------------------------------------- universe integrity --
+
+@sqlite_distinct_on
+def test_a_stock_behind_the_latest_session_or_outside_eq_is_not_shortlisted(db_session):
+    """Both exclusions are checked from the database, per stock, at selection
+    time. STALE stands in for ICICIPRULI on 2026-10-29 (its bar for the latest
+    session never arrived); MOVED for MOREPENLAB (moved to NSE's BE segment
+    while still in the universe)."""
+    from app.models.nse_symbol import NseSymbol
+
+    stale, _ = _add_stock(db_session, "STALE", "A", 0.0050)
+    _add_stock(db_session, "MOVED", "B", 0.0045)
+    _add_stock(db_session, "FRESH", "C", 0.0040)
+    # Low-momentum filler so all three above clear the percentile cut.
+    for i, drift in enumerate((-0.002, -0.001, 0.0, 0.0005, 0.001, 0.0015)):
+        _add_stock(db_session, f"FILL{i}", f"F{i}", drift)
+
+    before = {c.stock.symbol for c in _gather_candidates(db_session, CALL_DATE)}
+    assert {"STALE", "MOVED", "FRESH"} <= before, "fixture no longer reaches the guards"
+
+    db_session.query(PriceHistory).filter(
+        PriceHistory.stock_id == stale.id, PriceHistory.date == PREVIOUS_SESSION
+    ).delete()
+    db_session.add(NseSymbol(symbol="MOVED", company_name="Moved Ltd", series="BE", isin="INE000000001"))
+    db_session.add(NseSymbol(symbol="FRESH", company_name="Fresh Ltd", series="EQ", isin="INE000000002"))
+    db_session.flush()
+
+    after = {c.stock.symbol: c for c in _gather_candidates(db_session, CALL_DATE)}
+    assert "STALE" not in after, "priced off a close one session out of date"
+    assert "MOVED" not in after, "published a stock outside the EQ segment"
+    assert after["FRESH"].reference_date == PREVIOUS_SESSION
+
+
+def test_a_failed_catalogue_download_does_not_stop_the_job(db_session, monkeypatch, caplog):
+    import app.services.catalogue as catalogue
+
+    def unreachable(db):
+        raise catalogue.CatalogueError("NSE unreachable")
+
+    monkeypatch.setattr(catalogue, "load_catalogue", unreachable)
+    scheduler._refresh_catalogue(db_session, "incremental")
+
+    assert "pipeline.catalogue.refresh_failed context=incremental" in caplog.text
+
+
+def test_the_nightly_ingest_refreshes_the_catalogue_before_fetching_prices(db_session, monkeypatch):
+    """A rename has to land before tonight's fetch, or tonight's bar is
+    requested under a label that no longer returns data."""
+    import app.services.incremental as incremental
+
+    order = []
+    monkeypatch.setattr(scheduler, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(scheduler, "_refresh_catalogue", lambda db, context: order.append(("catalogue", context)))
+    monkeypatch.setattr(
+        incremental, "incremental_price_update",
+        lambda db, today: order.append(("prices", today)) or SimpleNamespace(requested=0),
+    )
+
+    scheduler._run_incremental_update(CALL_DATE)
+
+    assert order == [("catalogue", "incremental"), ("prices", CALL_DATE)]

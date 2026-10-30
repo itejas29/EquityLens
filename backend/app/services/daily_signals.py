@@ -41,11 +41,13 @@ from app.core.memory_hygiene import trim_every
 from app.models.daily_signal import DailySignal
 from app.models.fundamentals import Fundamentals
 from app.models.indicator import Indicator
+from app.models.nse_symbol import NseSymbol
 from app.models.price_history import PriceHistory
 from app.models.stock import Stock
 import pandas as pd
 
 from app.core.v1_strategy import V1, V1_VERSION
+from app.services.catalogue import TRADEABLE_SERIES
 from app.services.levels import Levels, compute_levels
 from app.services.price_integrity import find_discontinuity
 from app.services.market_data import fetch_price_history
@@ -433,6 +435,31 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
     fundamentals_by_stock = _batch_latest_fundamentals(db, passing_ids)
     sector_medians = _batch_sector_medians(db)
 
+    # The newest session any stock has a bar for. A candidate must be priced
+    # off THAT session: one whose last bar is older did not get the latest
+    # data (a halt, a rename, a fetch that silently returned nothing), so its
+    # entry zone and stop would be built from an out-of-date close. The
+    # ingest's own completeness count cannot be relied on for this — on
+    # 2026-10-29 it reported all 500 stocks current while ICICIPRULI's bar for
+    # that day was never stored. Checked here, per stock, from what is
+    # actually in the database. Universe-wide max, so a market holiday (no
+    # stock has a new bar) excludes nothing.
+    latest_session = (
+        db.query(func.max(PriceHistory.date)).filter(PriceHistory.date <= data_through).scalar()
+    )
+
+    # NSE's own segment for each candidate, from the catalogue refreshed
+    # every night. A stock moved out of the rolling-settlement EQ segment
+    # (e.g. to BE, trade-for-trade, as MOREPENLAB and HFCL were in October
+    # 2026) is not tradeable the way these levels assume — see
+    # catalogue.TRADEABLE_SERIES. No catalogue row means unknown, which is
+    # not grounds to exclude.
+    series_by_symbol = dict(
+        db.query(NseSymbol.symbol, NseSymbol.series)
+        .filter(NseSymbol.symbol.in_([stocks[i].symbol for i in passing_ids if i in stocks]))
+        .all()
+    )
+
     candidates: list[Candidate] = []
     for loop_idx, (stock_id, mom_score) in enumerate(
         sorted(momentum.items(), key=lambda kv: kv[1], reverse=True), start=1
@@ -460,6 +487,16 @@ def _gather_candidates(db: Session, as_of: date_type) -> list[Candidate]:
         age = (as_of - bar_date).days
         if age > MAX_REFERENCE_AGE_DAYS:
             logger.info("Skipping %s — most recent close is %d days old", stock.symbol, age)
+            continue
+        if latest_session is not None and bar_date < latest_session:
+            logger.warning(
+                "Skipping %s — last close %s is behind the latest session %s",
+                stock.symbol, bar_date, latest_session,
+            )
+            continue
+        series = series_by_symbol.get(stock.symbol)
+        if series is not None and series not in TRADEABLE_SERIES:
+            logger.warning("Skipping %s — NSE segment %s is not tradeable here", stock.symbol, series)
             continue
 
         # Recent-trend entry gate (Phase 17, promoted in v1.1). A 12m-1m score

@@ -752,6 +752,27 @@ def _incremental_done_today(as_of: date_type) -> bool:
         db.close()
 
 
+def _refresh_catalogue(db, context: str) -> None:
+    """Reload NSE's own equity list (one CSV request) so symbol renames and
+    segment moves reach `stocks` — see load_catalogue / _apply_renames.
+
+    Never fatal: a failed download costs one night's rename check and nothing
+    else, so the job it runs inside still goes ahead.
+    """
+    from app.services.catalogue import CatalogueError, load_catalogue
+
+    try:
+        report = load_catalogue(db)
+        db.commit()
+        logger.info(
+            "pipeline.catalogue.refreshed context=%s added=%d updated=%d renamed=%s",
+            context, report["added"], report["updated"], report["renamed"],
+        )
+    except CatalogueError as exc:
+        db.rollback()
+        logger.error("pipeline.catalogue.refresh_failed context=%s error=%s", context, exc)
+
+
 def _run_incremental_update(as_of: date_type) -> int:
     """Run the incremental price update and record a PipelineRun."""
     from app.services.incremental import incremental_price_update
@@ -794,6 +815,12 @@ def _run_incremental_update(as_of: date_type) -> int:
         )
         db.add(pipeline_run)
         db.commit()
+
+        # Nightly, before prices are fetched: a renamed ticker returns no data
+        # under its old label, so the rename has to land first or tonight's
+        # bar is lost. Weekly was not enough — the rename blocked 2026-10-28,
+        # four days before the next Saturday rebuild.
+        _refresh_catalogue(db, "incremental")
 
         result = incremental_price_update(db, today=as_of)
 
@@ -929,7 +956,6 @@ def _run_full_rebuild(as_of: date_type) -> int:
         return 0
 
     """Run the full universe rebuild and record a PipelineRun."""
-    from app.services.catalogue import CatalogueError, load_catalogue
     from app.services.universe import build_universe
 
     db = SessionLocal()
@@ -944,18 +970,10 @@ def _run_full_rebuild(as_of: date_type) -> int:
         db.add(pipeline_run)
         db.commit()
 
-        # Refresh NSE's own symbol list first so a ticker renamed during the
-        # week is carried over (same stock row, new label) before screening —
-        # otherwise the rebuild would drop the old label and ingest the new
-        # one from scratch as an unrelated stock. A failed download only
-        # costs this week's rename check; the rebuild still runs.
-        try:
-            report = load_catalogue(db)
-            db.commit()
-            logger.info("pipeline.catalogue.refreshed added=%d renamed=%s", report["added"], report["renamed"])
-        except CatalogueError as exc:
-            db.rollback()
-            logger.error("pipeline.catalogue.refresh_failed error=%s", exc)
+        # Before screening, so a ticker renamed during the week is carried over
+        # (same stock row, new label) instead of being dropped and re-ingested
+        # from scratch as an unrelated stock.
+        _refresh_catalogue(db, "full_rebuild")
 
         result = build_universe(db)
 
