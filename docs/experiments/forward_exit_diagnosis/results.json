@@ -1,0 +1,212 @@
+{
+  "generated": "2026-10-30T11:52:17",
+  "source": "snapshot:prod-export-2026-10-30",
+  "calls": 296,
+  "clean_calls": 216,
+  "positions_with_complete_window": 37,
+  "last_call_date": "2026-10-30",
+  "null_model": {
+    "positions": 37,
+    "observed": {
+      "stop": 5,
+      "target": 1,
+      "time": 31
+    },
+    "expected_under_no_edge": {
+      "stop": 5.8,
+      "target": 1.6,
+      "time": 29.6
+    },
+    "no_edge_90pct_range": {
+      "stop": [
+        2,
+        10
+      ],
+      "target": [
+        0,
+        4
+      ]
+    },
+    "p_stops_at_least_observed": 0.713,
+    "p_targets_at_most_observed": 0.504
+  },
+  "extension": {
+    "positions": 37,
+    "median_ext_atr": 1.79,
+    "median_runup_5_pct": 3.7,
+    "median_runup_20_pct": 12.04,
+    "spearman_ext_vs_net_20": 0.027,
+    "thirds": [
+      {
+        "third": "least_extended",
+        "positions": 13,
+        "ext_atr_range": [
+          -3.13,
+          0.78
+        ],
+        "mean_net_20_pct": 0.97,
+        "mean_excess_vs_universe_20_pct": 1.25,
+        "stopped": 0,
+        "median_mae_pct": -7.45
+      },
+      {
+        "third": "middle",
+        "positions": 12,
+        "ext_atr_range": [
+          0.93,
+          2.8
+        ],
+        "mean_net_20_pct": -1.96,
+        "mean_excess_vs_universe_20_pct": -2.02,
+        "stopped": 2,
+        "median_mae_pct": -8.94
+      },
+      {
+        "third": "most_extended",
+        "positions": 12,
+        "ext_atr_range": [
+          2.83,
+          25.48
+        ],
+        "mean_net_20_pct": 0.84,
+        "mean_excess_vs_universe_20_pct": 0.54,
+        "stopped": 3,
+        "median_mae_pct": -9.61
+      }
+    ]
+  },
+  "what_if_in_sample": [
+    {
+      "rule": "as_published",
+      "sample": 37,
+      "mean_net_return_pct": -0.24,
+      "median_net_return_pct": -0.73,
+      "win_rate_pct": 45.9,
+      "profit_factor": 0.96,
+      "exits": {
+        "time": 31,
+        "stop": 5,
+        "target": 1
+      },
+      "mean_holding_sessions": 18.5,
+      "mean_excess_vs_universe_pct": -0.11,
+      "excess_ci95": [
+        -2.9,
+        2.75
+      ]
+    },
+    {
+      "rule": "tight_2_4_atr",
+      "sample": 54,
+      "mean_net_return_pct": -1.13,
+      "median_net_return_pct": -5.42,
+      "win_rate_pct": 33.3,
+      "profit_factor": 0.79,
+      "exits": {
+        "stop": 31,
+        "time": 9,
+        "target": 14
+      },
+      "mean_holding_sessions": 9.9,
+      "mean_excess_vs_universe_pct": -1.14,
+      "excess_ci95": [
+        -4.14,
+        1.74
+      ]
+    },
+    {
+      "rule": "mid_3_6_atr",
+      "sample": 44,
+      "mean_net_return_pct": -2.14,
+      "median_net_return_pct": -5.64,
+      "win_rate_pct": 36.4,
+      "profit_factor": 0.67,
+      "exits": {
+        "stop": 20,
+        "time": 19,
+        "target": 5
+      },
+      "mean_holding_sessions": 14.3,
+      "mean_excess_vs_universe_pct": -1.87,
+      "excess_ci95": [
+        -4.61,
+        1.67
+      ]
+    },
+    {
+      "rule": "symmetric_4_4_atr",
+      "sample": 45,
+      "mean_net_return_pct": -0.84,
+      "median_net_return_pct": -2.19,
+      "win_rate_pct": 42.2,
+      "profit_factor": 0.86,
+      "exits": {
+        "stop": 8,
+        "time": 23,
+        "target": 14
+      },
+      "mean_holding_sessions": 15.0,
+      "mean_excess_vs_universe_pct": -1.02,
+      "excess_ci95": [
+        -4.42,
+        2.39
+      ]
+    },
+    {
+      "rule": "structural_20_session_low",
+      "sample": 38,
+      "mean_net_return_pct": 0.59,
+      "median_net_return_pct": -1.44,
+      "win_rate_pct": 42.1,
+      "profit_factor": 1.13,
+      "exits": {
+        "time": 29,
+        "stop": 8,
+        "target": 1
+      },
+      "mean_holding_sessions": 17.7,
+      "mean_excess_vs_universe_pct": 0.64,
+      "excess_ci95": [
+        -1.05,
+        2.54
+      ]
+    },
+    {
+      "rule": "time_stop_5_sessions",
+      "sample": 48,
+      "mean_net_return_pct": 0.03,
+      "median_net_return_pct": -1.53,
+      "win_rate_pct": 31.2,
+      "profit_factor": 1.01,
+      "exits": {
+        "time_stop": 27,
+        "time": 19,
+        "stop": 1,
+        "target": 1
+      },
+      "mean_holding_sessions": 10.9,
+      "mean_excess_vs_universe_pct": 0.16,
+      "excess_ci95": [
+        -3.12,
+        3.38
+      ]
+    },
+    {
+      "rule": "hold_20_no_levels",
+      "sample": 36,
+      "mean_net_return_pct": 1.79,
+      "median_net_return_pct": -0.51,
+      "win_rate_pct": 47.2,
+      "profit_factor": 1.45,
+      "exits": {
+        "time": 36
+      },
+      "mean_holding_sessions": 20.0,
+      "mean_excess_vs_universe_pct": 1.75,
+      "excess_ci95": [
+        -2.64,
+        4.06
+      ]
+    }
+  ]
+}

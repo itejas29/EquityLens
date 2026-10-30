@@ -273,3 +273,47 @@ def test_the_realistic_record_endpoint_scores_stored_calls_and_caches(client, db
 
     monkeypatch.setattr(fs, "compute_realistic_record", must_not_recompute)
     assert client.get("/api/v1/daily-signals/track-record/realistic").json() == body
+
+
+# ------------------------------------------------- no-trade placeholders --
+
+def test_no_trade_placeholders_are_dropped_before_storage():
+    import pandas as pd
+
+    from app.services.ingestion import drop_no_trade_placeholders
+
+    df = pd.DataFrame([
+        {"date": D0, "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 0},              # holiday fill-in
+        {"date": SESSIONS[1], "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": float("nan")},
+        {"date": SESSIONS[2], "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 250},  # one real price
+        {"date": SESSIONS[3], "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 900},
+    ])
+    kept = drop_no_trade_placeholders(df)
+    assert list(kept["date"]) == [SESSIONS[2], SESSIONS[3]]
+
+
+def test_a_holiday_filled_in_by_the_provider_is_neither_a_session_nor_a_fill(db_session):
+    """2026-09-14 in production: NSE closed, 574 stocks carrying a flat,
+    zero-volume bar. A call dated that day must be flagged CLOSED_DAY, and no
+    position may fill or count a session on the placeholder."""
+    from app.models.price_history import PriceHistory
+    from app.models.stock import Stock
+
+    stock = Stock(symbol="AAA", is_active=True)
+    db_session.add(stock)
+    db_session.flush()
+    holiday = SESSIONS[4]
+    for d in SESSIONS[:10]:
+        if d == holiday:
+            db_session.add(PriceHistory(stock_id=stock.id, date=d, open=Decimal("100"), high=Decimal("100"),
+                                        low=Decimal("100"), close=Decimal("100"), volume=0))
+        else:
+            db_session.add(PriceHistory(stock_id=stock.id, date=d, open=Decimal("100"), high=Decimal("101"),
+                                        low=Decimal("99"), close=Decimal("100"), volume=1000))
+    db_session.flush()
+
+    sessions = fs.load_sessions(db_session, D0)
+    bars = fs.load_bars(db_session, [stock.id], D0)[stock.id]
+    assert holiday not in sessions
+    assert holiday not in [b.date for b in bars]
+    assert CLOSED_DAY in flag_day(_day(holiday, (9, 15), [SESSIONS[3]]), sessions)

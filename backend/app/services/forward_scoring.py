@@ -64,6 +64,7 @@ from app.models.daily_signal import DailySignal
 from app.models.pipeline_run import PipelineRun
 from app.models.price_history import PriceHistory
 from app.models.stock import Stock
+from app.services.ingestion import is_no_trade_placeholder
 from app.services.record_integrity import EXCLUDING_FLAGS, STALE_REFERENCE, PublishedDay, flag_day
 
 logger = logging.getLogger(__name__)
@@ -546,13 +547,11 @@ def summarize(campaigns: list[Campaign], unfilled: dict[str, int], absorbed: int
     }
 
 
-def score_record(calls: list[Call], bars_by_stock: dict[int, list[Bar]], sessions: list[date_type],
-                 benchmarks: dict, rule: ExitRule = AS_PUBLISHED, cost: Decimal = ROUND_TRIP_COST) -> dict:
-    """Flag every published day, then score the clean record and the full one."""
+def split_clean(calls: list[Call], sessions: list[date_type]) -> tuple[list[Call], dict[date_type, frozenset[str]]]:
+    """(the calls on days with no excluding flag, flags for every published day)."""
     by_date: dict[date_type, list[Call]] = defaultdict(list)
     for c in calls:
         by_date[c.date].append(c)
-
     flags_by_date = {
         d: flag_day(
             PublishedDay(d, min(_aware(c.generated_at) for c in cs), tuple(c.reference_date for c in cs)),
@@ -560,8 +559,17 @@ def score_record(calls: list[Call], bars_by_stock: dict[int, list[Bar]], session
         )
         for d, cs in by_date.items()
     }
+    return [c for c in calls if not (flags_by_date[c.date] & EXCLUDING_FLAGS)], flags_by_date
+
+
+def score_record(calls: list[Call], bars_by_stock: dict[int, list[Bar]], sessions: list[date_type],
+                 benchmarks: dict, rule: ExitRule = AS_PUBLISHED, cost: Decimal = ROUND_TRIP_COST) -> dict:
+    """Flag every published day, then score the clean record and the full one."""
+    by_date: dict[date_type, list[Call]] = defaultdict(list)
+    for c in calls:
+        by_date[c.date].append(c)
+    clean_calls, flags_by_date = split_clean(calls, sessions)
     excluded_days = sorted(d for d, f in flags_by_date.items() if f & EXCLUDING_FLAGS)
-    clean_calls = [c for c in calls if not (flags_by_date[c.date] & EXCLUDING_FLAGS)]
 
     flag_counts: dict[str, int] = defaultdict(int)
     for f in flags_by_date.values():
@@ -626,23 +634,34 @@ def load_calls(db: Session) -> list[Call]:
 def load_bars(db: Session, stock_ids: list[int], since: date_type) -> dict[int, list[Bar]]:
     rows = (
         db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.open,
-                 PriceHistory.high, PriceHistory.low, PriceHistory.close)
+                 PriceHistory.high, PriceHistory.low, PriceHistory.close, PriceHistory.volume)
         .filter(PriceHistory.stock_id.in_(stock_ids), PriceHistory.date >= since)
         .order_by(PriceHistory.stock_id, PriceHistory.date)
         .all()
     )
     out: dict[int, list[Bar]] = defaultdict(list)
-    for stock_id, d, o, h, l, c in rows:
+    for stock_id, d, o, h, l, c, v in rows:
         values = [_to_decimal(x) for x in (o, h, l, c)]
         # An incomplete bar is skipped, not patched: missing stays missing.
-        if any(v is None for v in values):
+        # So is a no-trade placeholder already in the table (see
+        # ingestion.is_no_trade_placeholder): a position cannot fill, or be
+        # held through a "session", on a day nothing traded.
+        if any(x is None for x in values) or is_no_trade_placeholder(*values, v):
             continue
         out[stock_id].append(Bar(d, *values))
     return dict(out)
 
 
 def load_sessions(db: Session, since: date_type) -> list[date_type]:
-    return [d for (d,) in db.query(PriceHistory.date).filter(PriceHistory.date >= since).distinct().order_by(PriceHistory.date)]
+    """Dates on which at least one stock really traded. A date whose only
+    bars are no-trade placeholders (a holiday Yahoo filled in) is not a
+    session, so a call dated on it is flagged CLOSED_DAY."""
+    traded = (PriceHistory.volume > 0) | (PriceHistory.high != PriceHistory.low)
+    return [
+        d for (d,) in db.query(PriceHistory.date)
+        .filter(PriceHistory.date >= since, traded)
+        .distinct().order_by(PriceHistory.date)
+    ]
 
 
 def load_benchmark(symbol: str) -> SeriesBenchmark:
@@ -676,7 +695,7 @@ def compute_realistic_record(db: Session, rule: ExitRule = AS_PUBLISHED) -> dict
     # Every stock, not only the picked ones, from the first call on.
     basket_rows = (
         db.query(PriceHistory.stock_id, PriceHistory.date, PriceHistory.open, PriceHistory.close)
-        .filter(PriceHistory.date >= first)
+        .filter(PriceHistory.date >= first, (PriceHistory.volume > 0) | (PriceHistory.high != PriceHistory.low))
         .yield_per(5000)
     )
     benchmarks[UNIVERSE_BENCHMARK] = BasketBenchmark.from_rows(basket_rows)

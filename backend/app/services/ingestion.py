@@ -39,7 +39,37 @@ def upsert_stock(db: Session, symbol: str, meta: dict) -> Stock:
     return stock
 
 
+def is_no_trade_placeholder(open_, high, low, close, volume) -> bool:
+    """A bar with one price for open, high, low and close and no volume.
+
+    Yahoo emits these for sessions in which nothing traded — including whole
+    NSE holidays. They are not prices: on 2026-01-15, 05-01, 05-28, 06-26,
+    09-14 and 10-02 (all days NSE published no bhavcopy, i.e. was closed)
+    ~500-670 stocks each got one, copying the previous close, and on
+    2025-03-18 — a day NSE DID trade — 632 of 641 stocks got one in place of
+    the real session. Stored, they read as a zero-range day, which drags ATR
+    (and so every entry zone and stop) down for weeks after, and make a closed
+    day look like a session. A real bar with a single traded price still has
+    volume, so it is kept.
+    """
+    if volume not in (None, 0) and not (isinstance(volume, float) and volume != volume):
+        return False
+    return open_ is not None and open_ == high == low == close
+
+
+def drop_no_trade_placeholders(history: pd.DataFrame) -> pd.DataFrame:
+    if history.empty:
+        return history
+    keep = [
+        not is_no_trade_placeholder(r.open, r.high, r.low, r.close, r.volume)
+        for r in history.itertuples(index=False)
+    ]
+    return history[keep]
+
+
 def upsert_price_history(db: Session, stock_id: int, history: pd.DataFrame) -> int:
+    # Not stored, and not substituted with anything: missing stays missing.
+    history = drop_no_trade_placeholders(history)
     if history.empty:
         return 0
 
