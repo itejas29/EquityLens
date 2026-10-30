@@ -1,15 +1,13 @@
 """Execution realism of the backtest engine: what each measurement check rests on.
 
-Two of these are strict expected failures. They are not skipped tests and not
-aspirations — they are the engine's KNOWN measurement defects, encoded so that:
+The last two were strict expected failures — the engine's known measurement
+defects #19 (gap-down stops filled at the stop) and #20 (entries filled at the
+close the signal was computed from) — until the engine moved to next-session
+execution. They now pass, so the verdict generator reads both checks as PASS.
 
-- the suite stays green while the defect is documented,
-- the verdict generator reads an xfail as that check FAILING, and
-- the moment someone fixes the engine, `strict=True` turns the unexpected pass
-  into a suite failure, forcing the marker off and the check to PASS.
-
-Fixing either defect changes every backtest number the engine has produced, so
-it is a research decision with a re-run attached, not a drive-by edit.
+Fixing them changed every backtest number the engine produces; the folds behind
+the published verdict were computed on the old engine and must be re-run before
+any of those figures are quoted against these checks.
 """
 
 from datetime import date, timedelta
@@ -156,14 +154,8 @@ def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session
     assert entries_a == entries_b
 
 
-# ------------------------------------------- known defects (strict xfail) --
+# ----------------------------------- execution timing (formerly #19, #20) --
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN DEFECT: a stop is filled at the stop price even when the session "
-    "opened below it (backtest.py: `if low <= pos.stop_loss: exit_price = "
-    "pos.stop_loss`). A gap-down fills at or below the open. Overstates "
-    "backtest returns. Fixing it changes every published backtest."
-))
 def test_a_gap_down_through_the_stop_fills_at_the_open_not_the_stop(db_session, monkeypatch):
     _universe(db_session, gap_day=GAP_DAY, gap=0.70)
     result = _run(db_session, monkeypatch)
@@ -181,15 +173,6 @@ def test_a_gap_down_through_the_stop_fills_at_the_open_not_the_stop(db_session, 
     )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN DEFECT: entries fill on the signal bar itself. On a rebalance day "
-    "the snapshot is scored on bars up to and including that day's close, and "
-    "the position is opened the same day at entry_high derived from that "
-    "close. A signal computed from a close cannot be traded at that close; "
-    "the live system publishes at 09:15 IST and fills next session. Direction "
-    "of bias is not established: the timing is unexecutable but entry_high "
-    "sits above the close, which is pessimistic on price."
-))
 def test_entries_fill_in_the_session_after_the_signal(db_session, monkeypatch):
     _universe(db_session)
     rebalances: list[date] = []

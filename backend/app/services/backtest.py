@@ -628,7 +628,7 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
     # POINT-IN-TIME CONTRACT, stated explicitly:
     #   signal timestamp       = close of day T
     #   construction timestamp = close of day T (same bar)
-    #   execution timestamp    = close of day T, at that day's price
+    #   execution timestamp    = the next session (see EXECUTION TIMING below)
     # The 200DMA at T is a trailing mean of closes up to and including T, so no
     # value after T is ever read. `.rolling(min_periods=...)` leaves the warm-up
     # window NaN rather than averaging a short series, and a NaN regime is
@@ -700,8 +700,71 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
     last_known_close: dict[int, float] = {}
     last_bar_date: dict[int, date_type] = {}
 
+    # --- EXECUTION TIMING (audit defects #19 and #20) ---------------------
+    # A rebalance is DECIDED at the close of day T, from bars up to and
+    # including T, and EXECUTED in the next session — the way the live system
+    # works: its list is built from the last close and published at 09:15 IST.
+    #   - regime trims sell at the next session's open;
+    #   - entries are limit orders at entry_high for the next session only:
+    #     filled at the open if it opens at or below entry_high, at entry_high
+    #     if the session trades down to it, otherwise not filled (counted);
+    #     a session that opens through the stop is not entered;
+    #   - stops and targets fill at the open when a session gaps through them,
+    #     otherwise at the level.
+    # Previously entries filled at the close the signal was computed from, and
+    # a gap-down "filled" at a stop price the stock never traded at.
+    # A position is not checked against its stop or target in the session it
+    # was filled: one daily bar cannot say whether its low came before or
+    # after the fill.
+    pending_trims: set[int] = set()
+    pending_entries: list[dict] = []
+    missed_entries = 0
+    entries_opened_through_stop = 0
+
+    def _bar(stock_id: int, day):
+        frame = indexed_frames.get(stock_id)
+        if frame is None or day not in frame.index:
+            return None
+        row = frame.loc[day]
+        return None if pd.isna(row["close"]) else row
+
+    def _close_position(pos: OpenPosition, price: float, day, reason: str) -> None:
+        nonlocal cash, total_costs_paid
+        fill = _sell_fill(price, config.slippage_pct)
+        sell_cost = _half_cost(fill, pos.quantity, config.transaction_cost_pct)
+        total_costs_paid += sell_cost
+        cash += fill * pos.quantity - sell_cost
+        effective_exit = fill - sell_cost / pos.quantity
+        pnl = (effective_exit - pos.entry_price) * pos.quantity
+        trade_log.append(
+            Trade(
+                stock_id=pos.stock_id, symbol=pos.symbol,
+                entry_date=pos.entry_date, exit_date=day,
+                entry_price=round(pos.entry_price, 2), exit_price=round(effective_exit, 2),
+                quantity=pos.quantity, pnl=round(pnl, 2),
+                pnl_pct=round((effective_exit / pos.entry_price - 1) * 100, 2),
+                exit_reason=reason, holding_days=(day - pos.entry_date).days,
+            )
+        )
+
     for today in trading_calendar:
-        # --- exits: stop / target / horizon, checked every day ---
+        # --- 1) yesterday's regime trims, at today's open ---
+        if pending_trims:
+            carried: set[int] = set()
+            for pos in [p for p in open_positions if p.stock_id in pending_trims]:
+                row = _bar(pos.stock_id, today)
+                if row is None:
+                    carried.add(pos.stock_id)  # cannot sell in a session it does not trade
+                    continue
+                px = float(row["open"]) if pd.notna(row["open"]) else float(row["close"])
+                _close_position(pos, px, today, "regime")
+                open_positions = [q for q in open_positions if q is not pos]
+            pending_trims = carried
+        # Entries below are bought at the open, so they may spend only what
+        # was in hand then — not the proceeds of stops hit later in the session.
+        cash_at_open = cash
+
+        # --- 2) exits: stop / target / horizon, checked every day ---
         still_open: list[OpenPosition] = []
         for pos in open_positions:
             frame = indexed_frames.get(pos.stock_id)
@@ -746,6 +809,7 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
                 continue
 
             close = float(row["close"])
+            open_ = float(row["open"]) if pd.notna(row["open"]) else None
             low = float(row["low"]) if pd.notna(row["low"]) else None
             high = float(row["high"]) if pd.notna(row["high"]) else None
             last_known_close[pos.stock_id] = close
@@ -753,52 +817,77 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
 
             exit_price, reason = None, None
             if low is not None and low <= pos.stop_loss:
-                exit_price, reason = pos.stop_loss, "stop"
+                # Same-bar touch of both levels resolves to the stop: the
+                # pessimistic reading of a bar whose order is unknowable.
+                gapped = open_ is not None and open_ < pos.stop_loss
+                exit_price, reason = (open_ if gapped else pos.stop_loss), "stop"
             elif high is not None and high >= pos.target_price:
-                exit_price, reason = pos.target_price, "target"
+                gapped = open_ is not None and open_ > pos.target_price
+                exit_price, reason = (open_ if gapped else pos.target_price), "target"
             elif (today - pos.entry_date).days >= config.params.horizon_days:
                 exit_price, reason = close, "horizon"
 
             if exit_price is None:
                 still_open.append(pos)
                 continue
-
-            fill = _sell_fill(exit_price, config.slippage_pct)
-            sell_cost = _half_cost(fill, pos.quantity, config.transaction_cost_pct)
-            total_costs_paid += sell_cost
-            cash += fill * pos.quantity - sell_cost
-            effective_exit = fill - sell_cost / pos.quantity
-            pnl = (effective_exit - pos.entry_price) * pos.quantity
-            trade_log.append(
-                Trade(
-                    stock_id=pos.stock_id,
-                    symbol=pos.symbol,
-                    entry_date=pos.entry_date,
-                    exit_date=today,
-                    entry_price=round(pos.entry_price, 2),
-                    exit_price=round(effective_exit, 2),
-                    quantity=pos.quantity,
-                    pnl=round(pnl, 2),
-                    pnl_pct=round((effective_exit / pos.entry_price - 1) * 100, 2),
-                    exit_reason=reason,
-                    holding_days=(today - pos.entry_date).days,
-                )
-            )
+            _close_position(pos, exit_price, today, reason)
         open_positions = still_open
 
-        # --- rebalance: score point-in-time, enter new positions ---
+        # --- 3) yesterday's entries, filled in today's session ---
+        if pending_entries:
+            budget = cash_at_open
+            for e in pending_entries:
+                row = _bar(e["stock_id"], today)
+                if row is None or pd.isna(row["open"]) or pd.isna(row["low"]):
+                    missed_entries += 1
+                    continue
+                open_px, low_px = float(row["open"]), float(row["low"])
+                limit = e["entry_reference_price"]
+                if open_px <= limit:
+                    if open_px <= e["stop_loss"]:
+                        entries_opened_through_stop += 1
+                        continue
+                    reference = open_px
+                elif low_px <= limit:
+                    reference = limit
+                else:
+                    missed_entries += 1
+                    continue
+                fill = _buy_fill(reference, config.slippage_pct)
+                # Sized yesterday against entry_high; never spend more than
+                # was in hand at the open.
+                per_share = fill * (1 + config.transaction_cost_pct / 2)
+                shares = min(e["shares"], int(budget // per_share)) if per_share > 0 else 0
+                if shares <= 0:
+                    missed_entries += 1
+                    continue
+                buy_cost = _half_cost(fill, shares, config.transaction_cost_pct)
+                total_costs_paid += buy_cost
+                cash -= fill * shares + buy_cost
+                budget -= fill * shares + buy_cost
+                open_positions.append(
+                    OpenPosition(
+                        stock_id=e["stock_id"],
+                        symbol=e["symbol"],
+                        sector=e["sector"],
+                        quantity=shares,
+                        entry_price=fill + buy_cost / shares,
+                        entry_date=today,
+                        stop_loss=e["stop_loss"],
+                        target_price=e["target_price"],
+                    )
+                )
+                last_known_close[e["stock_id"]] = float(row["close"])
+                last_bar_date[e["stock_id"]] = today
+            pending_entries = []
+
+        # --- 4) rebalance: decide at today's close, execute next session ---
         if today in rebalance_dates:
             bounded_frames = {sid: df[df["date"] <= today] for sid, df in raw_frames.items()}
             bounded_bench = benchmark_df[benchmark_df["date"] <= today]
             snapshot = compute_point_in_time_universe(
                 bounded_frames, bounded_bench, config.params, config.indicator_cache, today
             )
-
-            held_ids = {p.stock_id for p in open_positions}
-            held_sector_counts: dict[str, int] = {}
-            for p in open_positions:
-                sec = p.sector or "Unknown"
-                held_sector_counts[sec] = held_sector_counts.get(sec, 0) + 1
 
             current_equity = cash + sum(
                 p.quantity * last_known_close.get(p.stock_id, p.entry_price) for p in open_positions
@@ -810,15 +899,19 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
             # would ride the decline holding everything. Existing positions are
             # therefore trimmed down to the target, weakest score first, so the
             # filter actually removes exposure rather than merely pausing buying.
+            # Decided here; sold at tomorrow's open. Sizing below uses the book
+            # as it will stand after the trims, valued at today's close.
+            remaining = list(open_positions)
+            projected_cash = cash
             exposure_target = _target_exposure(today)
             if config.params.use_regime_filter and exposure_target < 1.0:
                 max_market_value = current_equity * exposure_target
                 held_value = sum(
-                    p.quantity * last_known_close.get(p.stock_id, p.entry_price) for p in open_positions
+                    p.quantity * last_known_close.get(p.stock_id, p.entry_price) for p in remaining
                 )
                 if held_value > max_market_value:
                     ranked = sorted(
-                        open_positions,
+                        remaining,
                         key=lambda pos: (
                             snapshot[pos.stock_id].overall_score
                             if pos.stock_id in snapshot and snapshot[pos.stock_id].overall_score is not None
@@ -830,62 +923,33 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
                             break
                         px = last_known_close.get(pos.stock_id, pos.entry_price)
                         fill = _sell_fill(px, config.slippage_pct)
-                        sell_cost = _half_cost(fill, pos.quantity, config.transaction_cost_pct)
-                        total_costs_paid += sell_cost
-                        cash += fill * pos.quantity - sell_cost
-                        effective_exit = fill - sell_cost / pos.quantity
-                        pnl = (effective_exit - pos.entry_price) * pos.quantity
-                        trade_log.append(
-                            Trade(
-                                stock_id=pos.stock_id, symbol=pos.symbol,
-                                entry_date=pos.entry_date, exit_date=today,
-                                entry_price=round(pos.entry_price, 2), exit_price=round(effective_exit, 2),
-                                quantity=pos.quantity, pnl=round(pnl, 2),
-                                pnl_pct=round((effective_exit / pos.entry_price - 1) * 100, 2),
-                                exit_reason="regime", holding_days=(today - pos.entry_date).days,
-                            )
-                        )
+                        projected_cash += fill * pos.quantity - _half_cost(fill, pos.quantity, config.transaction_cost_pct)
                         held_value -= pos.quantity * px
-                        open_positions = [q for q in open_positions if q is not pos]
-                    held_ids = {q.stock_id for q in open_positions}
-                    held_sector_counts = {}
-                    for q in open_positions:
-                        sec = q.sector or "Unknown"
-                        held_sector_counts[sec] = held_sector_counts.get(sec, 0) + 1
+                        pending_trims.add(pos.stock_id)
+                        remaining = [q for q in remaining if q is not pos]
 
-            max_new = config.params.max_stocks - len(open_positions)
+            # Everything still held today is ineligible for a new entry,
+            # including a position being trimmed tomorrow.
+            held_ids = {p.stock_id for p in open_positions}
+            held_sector_counts: dict[str, int] = {}
+            for q in remaining:
+                sec = q.sector or "Unknown"
+                held_sector_counts[sec] = held_sector_counts.get(sec, 0) + 1
+
+            max_new = config.params.max_stocks - len(remaining)
             if max_new > 0:
                 # Cash reserved by policy is withheld from the sizing routine
                 # rather than subtracted afterwards, so a buffer of 0 genuinely
                 # allows full deployment. The regime target caps it further.
                 reserve = current_equity * config.params.cash_buffer_pct
                 held_value_now = sum(
-                    q.quantity * last_known_close.get(q.stock_id, q.entry_price) for q in open_positions
+                    q.quantity * last_known_close.get(q.stock_id, q.entry_price) for q in remaining
                 )
                 regime_room = max(0.0, current_equity * exposure_target - held_value_now)
-                deployable = min(max(0.0, cash - reserve), regime_room)
-                new_entries = _select_new_entries(
+                deployable = min(max(0.0, projected_cash - reserve), regime_room)
+                pending_entries = _select_new_entries(
                     snapshot, stocks_by_id, held_ids, held_sector_counts, current_equity, deployable, config, max_new
                 )
-                for e in new_entries:
-                    fill = _buy_fill(e["entry_reference_price"], config.slippage_pct)
-                    buy_cost = _half_cost(fill, e["shares"], config.transaction_cost_pct)
-                    total_costs_paid += buy_cost
-                    cash -= fill * e["shares"] + buy_cost
-                    effective_entry = fill + buy_cost / e["shares"]
-                    open_positions.append(
-                        OpenPosition(
-                            stock_id=e["stock_id"],
-                            symbol=e["symbol"],
-                            sector=e["sector"],
-                            quantity=e["shares"],
-                            entry_price=effective_entry,
-                            entry_date=today,
-                            stop_loss=e["stop_loss"],
-                            target_price=e["target_price"],
-                        )
-                    )
-                    last_known_close[e["stock_id"]] = e["entry_reference_price"]
 
         # --- daily mark-to-market ---
         if config.params.use_regime_filter:
@@ -944,6 +1008,10 @@ def run_backtest(db: Session, config: BacktestConfig) -> BacktestResult:
         metrics["avg_capital_deployed_pct"] = None
 
     metrics["total_transaction_costs"] = round(total_costs_paid, 2)
+    # Next-session limit entries that never filled: the stock opened and
+    # stayed above entry_high, or opened through its stop.
+    metrics["missed_entries"] = missed_entries
+    metrics["entries_opened_through_stop"] = entries_opened_through_stop
     metrics.update(_capture_ratios(equity_curve, benchmark_curve))
     metrics.update(_relative_metrics(equity_curve, benchmark_curve))
     metrics["days_in_bull_regime"] = bull_days
