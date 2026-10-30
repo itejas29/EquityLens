@@ -300,6 +300,29 @@
 .el .mkt-value { font-size: 19px; font-weight: 650; color: var(--text-1); margin-top: 5px; }
 .el .mkt-meta { font-size: 12px; margin-top: 3px; }
 
+/* 200-day rule card (RegimeCard.jsx): the live call on the left, its evidence
+   and the case against it on the right; stacked on phones. Same hairline
+   grid as the market strip above it, so the two read as one block. */
+.el .regime {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 1px;
+  margin-top: 12px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.el .regime > div { background: var(--surface); padding: 14px 16px; }
+.el .regime-head { display: flex; align-items: center; gap: 8px; }
+.el .regime-value { font-size: 16px; font-weight: 650; color: var(--text-1); margin-top: 6px; }
+.el .regime-meta { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.el .regime-call { margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
+.el .regime-ev { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
+.el .regime-ev li + li { margin-top: 4px; }
+.el .regime-ev strong { color: var(--text-1); }
+.el .regime-foot { margin: 8px 0 0; font-size: 12px; color: var(--text-3); }
+
 .el .breadth-bar {
   display: flex; height: 5px; border-radius: 3px;
   overflow: hidden; background: var(--surface-2); margin-top: 9px;
@@ -551,6 +574,7 @@
              display: flex; flex-direction: column; justify-content: center; gap: 4px; }
 
   .el .mkt { grid-template-columns: repeat(2, 1fr); }
+  .el .regime { grid-template-columns: 1fr; }
 
   .el /* Bottom navigation replaces the top links on small screens. */
   .botnav {

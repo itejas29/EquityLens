@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient, apiErrorMessage } from "../api/client";
 import MarketStrip from "../components/MarketStrip";
+import RegimeCard from "../components/RegimeCard";
 import { useLivePrices } from "../lib/useLivePrices";
 import MoversTable from "../components/MoversTable";
 import PicksTable from "../components/PicksTable";
@@ -68,6 +69,7 @@ export default function HomePage() {
           error={errors.overview}
           onRetry={load}
         />
+        <RegimeCard signals={signals} />
       </section>
 
       <section className="section">
