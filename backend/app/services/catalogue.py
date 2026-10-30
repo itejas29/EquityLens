@@ -100,6 +100,7 @@ def load_catalogue(db: Session) -> dict:
     """
     rows = fetch_nse_equity_list()
     existing = {s.symbol: s for s in db.query(NseSymbol).all()}
+    renamed = _apply_renames(db, existing, rows)
 
     added = 0
     updated = 0
@@ -120,7 +121,58 @@ def load_catalogue(db: Session) -> dict:
             updated += 1
 
     db.flush()
-    return {"fetched": len(rows), "added": added, "updated": updated, "total": len(existing) + added}
+    return {
+        "fetched": len(rows),
+        "added": added,
+        "updated": updated,
+        "total": len(existing) + added,
+        "renamed": [f"{old}->{new}" for old, new in renamed],
+    }
+
+
+def _apply_renames(db: Session, existing: dict[str, NseSymbol], rows: list[dict]) -> list[tuple[str, str]]:
+    """Carry an ingested stock across an NSE symbol change.
+
+    `stocks` is keyed by symbol, but a symbol is only a label: NSE renamed
+    ICICIPRULI to ICICILIFE in October 2026 with the same ISIN. Until the
+    stock row follows, every price fetch for the old label returns nothing,
+    the stock goes stale, and one stale stock is enough to block a whole
+    morning's shortlist. The ISIN is the identity that survives a rename.
+
+    A rename is: a symbol we already knew has dropped off NSE's list, and its
+    ISIN now appears under exactly one different symbol. The stock row keeps
+    its id — and with it its whole price history — and only its label moves.
+    """
+    current_symbols = {row["symbol"] for row in rows}
+    symbols_by_isin: dict[str, set[str]] = {}
+    for row in rows:
+        if row["isin"]:
+            symbols_by_isin.setdefault(row["isin"], set()).add(row["symbol"])
+
+    renamed: list[tuple[str, str]] = []
+    for old_symbol, entry in existing.items():
+        if old_symbol in current_symbols or not entry.isin:
+            continue
+        candidates = symbols_by_isin.get(entry.isin, set())
+        if len(candidates) != 1:
+            continue  # delisted (no successor) or ambiguous: leave it alone
+        (new_symbol,) = candidates
+
+        stock = db.query(Stock).filter(Stock.symbol == old_symbol).first()
+        if stock is None:
+            continue
+        if db.query(Stock.id).filter(Stock.symbol == new_symbol).first() is not None:
+            # Both labels already have their own rows (someone opened the new
+            # ticker before this ran). Merging two price histories is not a
+            # rename; report it and leave both for a person to resolve.
+            logger.warning("catalogue.rename.conflict old=%s new=%s isin=%s", old_symbol, new_symbol, entry.isin)
+            continue
+        stock.symbol = new_symbol
+        renamed.append((old_symbol, new_symbol))
+        logger.warning("catalogue.rename old=%s new=%s isin=%s stock_id=%s", old_symbol, new_symbol, entry.isin, stock.id)
+
+    db.flush()
+    return renamed
 
 
 def search_catalogue(db: Session, query: str, limit: int = 20, tradeable_only: bool = True) -> list[dict]:

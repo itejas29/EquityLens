@@ -99,3 +99,4 @@ class CatalogueLoadResponse(BaseModel):
     added: int
     updated: int
     total: int
+    renamed: list[str] = []

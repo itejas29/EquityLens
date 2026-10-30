@@ -191,3 +191,20 @@ def test_a_complete_previous_session_still_publishes_on_a_late_morning(loop_harn
 def test_the_publish_deadline_is_the_close(hh, mm, closed):
     now = datetime(2026, 10, 28, hh, mm, tzinfo=IST)
     assert scheduler._past_publish_deadline(now) is closed
+
+
+def test_losing_a_publish_race_is_logged_not_retried(loop_harness, monkeypatch, caplog):
+    """Two processes on one database (a forgotten second deployment did exist)
+    both see an unpublished morning; the second must not overwrite the first."""
+    from app.services.daily_signals import ShortlistAlreadyPublished
+
+    def already(d):
+        raise ShortlistAlreadyPublished(d)
+
+    monkeypatch.setattr(scheduler, "_generate_signals", already)
+    loop_harness.runs[PREVIOUS_SESSION] = _run("complete", PREVIOUS_SESSION)
+
+    loop_harness.run_at(9, 16)
+
+    assert "reason=already_published" in caplog.text
+    assert "Daily signal generation failed" not in caplog.text

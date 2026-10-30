@@ -642,6 +642,10 @@ async def daily_signals_loop() -> None:
     is still unpublished then stays unpublished — the gap in the record is the
     honest outcome, the same reason signals are never backfilled.
     """
+    # Imported here for the same reason as in _generate_signals: daily_signals
+    # pulls in the scoring stack, which would make this module's import circular.
+    from app.services.daily_signals import ShortlistAlreadyPublished
+
     logger.info("Daily signal loop started — publishes at %02d:%02d IST", GENERATION_HOUR, GENERATION_MINUTE)
     recovery_attempted_for_date = None
     last_skip_logged_date = None
@@ -717,6 +721,10 @@ async def daily_signals_loop() -> None:
                     continue
                 count = await asyncio.get_event_loop().run_in_executor(_executor, _generate_signals, today)
             logger.info("pipeline.signals.published date=%s count=%d", today, count)
+        except ShortlistAlreadyPublished:
+            # Another writer got there first (a second process on the same
+            # database). The published list stands; nothing to retry.
+            logger.warning("pipeline.signals.skipped date=%s reason=already_published", today)
         except Exception as exc:
             # Never let one bad day kill the loop; it retries on the next tick.
             logger.exception("Daily signal generation failed: %s", exc)
@@ -921,6 +929,7 @@ def _run_full_rebuild(as_of: date_type) -> int:
         return 0
 
     """Run the full universe rebuild and record a PipelineRun."""
+    from app.services.catalogue import CatalogueError, load_catalogue
     from app.services.universe import build_universe
 
     db = SessionLocal()
@@ -934,6 +943,19 @@ def _run_full_rebuild(as_of: date_type) -> int:
         )
         db.add(pipeline_run)
         db.commit()
+
+        # Refresh NSE's own symbol list first so a ticker renamed during the
+        # week is carried over (same stock row, new label) before screening —
+        # otherwise the rebuild would drop the old label and ingest the new
+        # one from scratch as an unrelated stock. A failed download only
+        # costs this week's rename check; the rebuild still runs.
+        try:
+            report = load_catalogue(db)
+            db.commit()
+            logger.info("pipeline.catalogue.refreshed added=%d renamed=%s", report["added"], report["renamed"])
+        except CatalogueError as exc:
+            db.rollback()
+            logger.error("pipeline.catalogue.refresh_failed error=%s", exc)
 
         result = build_universe(db)
 

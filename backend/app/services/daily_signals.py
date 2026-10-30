@@ -536,17 +536,32 @@ def _apply_sector_cap(candidates: list[Candidate]) -> list[Candidate]:
     return selected
 
 
+class ShortlistAlreadyPublished(Exception):
+    """Raised instead of overwriting a dated shortlist. See generate_daily_signals."""
+
+    def __init__(self, as_of: date_type):
+        super().__init__(f"A shortlist for {as_of} is already published and is frozen")
+        self.as_of = as_of
+
+
 def generate_daily_signals(db: Session, as_of: date_type | None = None) -> list[DailySignal]:
     """Build and persist the shortlist for `as_of` (default today, IST-agnostic
-    — the caller decides the date). Re-running for a date replaces that date's
-    rows, so a manual re-run after a data fix does not leave two shortlists.
+    — the caller decides the date).
+
+    Append-only: a date that already has a shortlist is never rebuilt. The
+    forward record is only worth anything if each dated call stays exactly as
+    it was published; this function used to delete and reinsert, which let
+    any authenticated caller of POST /daily-signals/run rewrite a past day.
+    A wrong call is flagged, not replaced. This is also the guard against two
+    schedulers on the same database racing for the same morning.
     """
     as_of = as_of or date_type.today()
+    if db.query(DailySignal.id).filter(DailySignal.date == as_of).first() is not None:
+        raise ShortlistAlreadyPublished(as_of)
 
     candidates = _gather_candidates(db, as_of)
     selected = _apply_sector_cap(candidates)
 
-    db.query(DailySignal).filter(DailySignal.date == as_of).delete(synchronize_session=False)
 
     rows: list[DailySignal] = []
     for rank, cand in enumerate(selected, start=1):

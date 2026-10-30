@@ -1,11 +1,15 @@
 from datetime import date as date_type
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.services.market import get_price_feed
+from app.core.daily_signals_config import PUBLISH_DEADLINE_HOUR, PUBLISH_DEADLINE_MINUTE
 from app.core.database import get_db
+from app.core.exceptions import AppError
+from app.core.market_hours import IST
 from app.core.rate_limit import rate_limit_analysis
 from app.core.security import get_current_user
 from app.models.daily_signal import DailySignal
@@ -20,6 +24,7 @@ from app.core.v1_strategy import V1_DESCRIPTION, V1_VERSION
 from app.models.pipeline_run import PipelineRun
 from app.models.price_history import PriceHistory
 from app.services.daily_signals import (
+    ShortlistAlreadyPublished,
     compute_market_regime,
     available_dates,
     generate_daily_signals,
@@ -155,20 +160,36 @@ def list_dates(db: Session = Depends(get_db)) -> list[date_type]:
     dependencies=[Depends(get_current_user), Depends(rate_limit_analysis)],
 )
 def run_generation(
-    date: date_type | None = Query(None, description="Defaults to today"),
+    date: date_type | None = Query(None, description="Must be today (IST) if given"),
     db: Session = Depends(get_db),
 ) -> GenerateDailySignalsResponse:
-    """Manual trigger for the same job the 09:15 IST scheduler runs. Useful
-    after a data refresh, and the only way to publish outside market days.
+    """Manual trigger for the same job the 09:15 IST scheduler runs, for a
+    morning the scheduler missed.
 
-    Authenticated: this endpoint REPUBLISHES a dated shortlist, and the whole
-    point of that shortlist is that it is frozen — "a past day's call can be
-    reviewed as it was published". An anonymous caller able to rewrite it made
-    that guarantee unenforceable, which matters more here than the compute.
+    Bounded exactly like the scheduler: only today's date (IST), only before
+    the 15:30 publish deadline, and never over a shortlist that already
+    exists. A call published for a past date, or after the close, is not a
+    forward call — it is written knowing what happened — so a missed day
+    stays a visible gap instead of being filled in later.
     """
-    rows = generate_daily_signals(db, date)
+    now = datetime.now(IST)
+    today = now.date()
+    if date is not None and date != today:
+        raise AppError(
+            f"Shortlists can only be published for today ({today}); {date} would be written after the fact.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    if (now.hour, now.minute) >= (PUBLISH_DEADLINE_HOUR, PUBLISH_DEADLINE_MINUTE):
+        raise AppError(
+            f"Today's publish window closed at {PUBLISH_DEADLINE_HOUR:02d}:{PUBLISH_DEADLINE_MINUTE:02d} IST.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    try:
+        rows = generate_daily_signals(db, today)
+    except ShortlistAlreadyPublished as exc:
+        raise AppError(str(exc), status_code=status.HTTP_409_CONFLICT)
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}
-    published_date = rows[0].date if rows else (date or date_type.today())
+    published_date = today
     symbols = [stocks[r.stock_id].symbol for r in rows if r.stock_id in stocks]
     db.commit()
 
