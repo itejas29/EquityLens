@@ -117,6 +117,47 @@ def compute_indicator_snapshot(
     return base
 
 
+def normalized_momentum_scores(
+    closes_by_stock: dict[int, pd.Series],
+    windows: tuple[int, ...] = (126, 252),
+    vol_days: int = 252,
+) -> dict[int, float]:
+    """NSE's Nifty200 Momentum 30 ranking statistic, per stock.
+
+    For each window: price return over the window divided by the standard
+    deviation of daily log returns over `vol_days`; each ratio z-scored
+    across the stocks that have every input; the z-scores averaged with
+    equal weight. NSE then maps this to a "normalised momentum score"
+    (1 + z, or 1 / (1 - z) below zero) — monotonic, so the ranking is the
+    same and the mapping is skipped. Only a stock with full history for
+    every window and no unadjusted corporate-action break is scored; a
+    partial history is excluded, not scored on a shorter window.
+    """
+    need = max(max(windows), vol_days) + 1
+    ratios: dict[int, dict[int, float]] = {w: {} for w in windows}
+    for stock_id, closes in closes_by_stock.items():
+        if len(closes) < need or (closes <= 0).any():
+            continue
+        if find_discontinuity(closes.tolist()) is not None:
+            continue
+        sigma = float(np.log(closes.iloc[-(vol_days + 1):]).diff().dropna().std(ddof=1))
+        if not sigma > 0:
+            continue
+        last = float(closes.iloc[-1])
+        for w in windows:
+            ratios[w][stock_id] = (last / float(closes.iloc[-(w + 1)]) - 1) / sigma
+
+    scored = set.intersection(*(set(r) for r in ratios.values()))
+    if len(scored) < 2:
+        return {}
+    combined = pd.Series(0.0, index=sorted(scored))
+    for w in windows:
+        ser = pd.Series({sid: ratios[w][sid] for sid in scored})
+        sd = ser.std(ddof=0)
+        combined += ((ser - ser.mean()) / sd) if sd > 0 else 0.0
+    return (combined / len(windows)).to_dict()
+
+
 def compute_point_in_time_universe(
     bounded_frames: dict[int, pd.DataFrame],
     bounded_benchmark_df: pd.DataFrame,
@@ -213,6 +254,15 @@ def compute_point_in_time_universe(
         if len(raw_mom) >= 2:
             ser = pd.Series(raw_mom).rank(pct=True) * 100
             momentum_rank = ser.to_dict()
+    elif params is not None and getattr(params, "ranking_engine", "composite") == "momentum_normalized":
+        # Same guard as the raw engine: only stocks in this run's frames.
+        combined = normalized_momentum_scores(
+            {sid: bounded_frames[sid]["close"].astype(float).dropna() for sid in raw if sid in bounded_frames},
+            tuple(getattr(params, "normalized_momentum_windows", (126, 252))),
+            getattr(params, "normalized_momentum_vol_days", 252),
+        )
+        if combined:
+            momentum_rank = (pd.Series(combined).rank(pct=True) * 100).to_dict()
 
     # --- recent-trend entry gate (Phase 17) ---------------------------
     # Computed from the same bounded_frames the ranking uses, so it is

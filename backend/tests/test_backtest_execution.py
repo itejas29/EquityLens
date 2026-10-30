@@ -112,9 +112,14 @@ def test_costs_and_slippage_are_charged_on_both_legs_exactly(db_session, monkeyp
 
 # -------------------------------------------------------------- lookahead --
 
-def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session, monkeypatch):
+@pytest.mark.parametrize("ranking_engine", ["momentum", "momentum_normalized"])
+def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session, monkeypatch, ranking_engine):
     """Two histories identical up to a cutoff and wildly different after it
-    must produce identical signals and entries on every rebalance before it."""
+    must produce identical signals and entries on every rebalance before it —
+    for V1's ranking and for the Phase 23 challenger."""
+    from dataclasses import replace
+
+    params = replace(V1, ranking_engine=ranking_engine)
     cutoff = date(2026, 2, 10)
     recorded: dict[str, dict] = {"a": {}, "b": {}}
     real = bt.compute_point_in_time_universe
@@ -131,7 +136,7 @@ def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session
     for sym, g in [("AAA", 0.0010), ("BBB", 0.0012), ("CCC", 0.0014), ("DDD", 0.0016), ("EEE", 0.0025)]:
         _add_stock(db_session, sym, g)
     monkeypatch.setattr(bt, "compute_point_in_time_universe", recorder("a"))
-    a = _run(db_session, monkeypatch)
+    a = _run(db_session, monkeypatch, params=params)
 
     # History B: same rows up to the cutoff; after it, the leaders collapse.
     for ph in db_session.query(PriceHistory).filter(PriceHistory.date > cutoff).all():
@@ -141,7 +146,7 @@ def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session
         ph.low = ph.low * Decimal("0.5")
     db_session.flush()
     monkeypatch.setattr(bt, "compute_point_in_time_universe", recorder("b"))
-    b = _run(db_session, monkeypatch)
+    b = _run(db_session, monkeypatch, params=params)
 
     before = [d for d in recorded["a"] if date.fromisoformat(d) <= cutoff]
     assert before, "no rebalance fell before the cutoff — the test checked nothing"
@@ -151,6 +156,7 @@ def test_scoring_and_entries_do_not_see_bars_after_the_rebalance_date(db_session
 
     entries_a = sorted((t.symbol, t.entry_date, t.entry_price) for t in a.trade_log if t.entry_date <= cutoff)
     entries_b = sorted((t.symbol, t.entry_date, t.entry_price) for t in b.trade_log if t.entry_date <= cutoff)
+    assert entries_a, "no entries before the cutoff — there was nothing to compare"
     assert entries_a == entries_b
 
 

@@ -109,6 +109,11 @@ class StrategyParams:
     # "momentum"  — 12-month minus 1-month return, percentile-ranked 0-100
     #               across the cross-section so the same min_score threshold
     #               selects a comparable slice of the universe.
+    # "momentum_normalized" — NSE's Nifty200 Momentum 30 ranking (Phase 23):
+    #               6- and 12-month price returns, each divided by the standard
+    #               deviation of daily log returns over the last year, z-scored
+    #               across the cross-section, averaged 50/50, percentile-ranked.
+    #               A steady riser outranks a jumpy one with the same return.
     # Only the RANKING changes. Universe, entry logic, sizing, stops, regime,
     # costs and execution stay identical, which is what makes the A/B clean.
     ranking_engine: str = "composite"
@@ -131,6 +136,10 @@ class StrategyParams:
     # result depends on one narrow parameter choice.
     momentum_long_days: int = 252
     momentum_skip_days: int = 21
+    # Sessions for "momentum_normalized", as NSE defines its index: 6 and 12
+    # months of price return, one year of daily volatility, no skipped month.
+    normalized_momentum_windows: tuple[int, int] = (126, 252)
+    normalized_momentum_vol_days: int = 252
     # Restrict the scored universe to the top N by liquidity rank. None = all
     # active stocks. Uses the existing liquidity methodology unchanged.
     universe_top_n: int | None = None
