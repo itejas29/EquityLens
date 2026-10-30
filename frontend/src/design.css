@@ -146,18 +146,17 @@
   color: #fff;
 }
 
-/* Scrolls inside its own box rather than pushing the document wide.
-   Thirteen top-level links total 1,189px against a 1,200px bar that also holds
-   a logo and a search field, so the nav was overflowing before the Methodology
-   link was added — measured at 1,078px without it. The overflow was escaping to
-   the document, giving every page a horizontal scrollbar and a pale gutter down
-   the right where the dark surfaces stopped. min-width:0 is what actually lets a
-   flex child shrink below its content; overflow-x alone does nothing without it. */
+/* Five entries, not thirteen. The thirteen top-level links totalled 1,189px,
+   so they scrolled inside this box behind a hidden scrollbar — at 1440px wide
+   "AI Trading" was cut in half and three links were out of sight. The five now
+   fit from 861px up (the max-width blocks below tighten the bar to make sure),
+   and the box must not scroll again: a scrolling box would also clip the
+   dropdown panels that hang below it. min-width:0 still lets the flex child
+   shrink rather than push the document wide. */
 .el .nav-links {
   display: flex; align-items: center; gap: 2px; flex: 1;
-  min-width: 0; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+  min-width: 0;
 }
-.el .nav-links::-webkit-scrollbar { display: none; }
 .el .nav-link { flex: 0 0 auto; }
 
 .el .nav-link {
@@ -185,7 +184,65 @@
   border-radius: 2px 2px 0 0;
 }
 
+/* A group: its button reads as one more nav link, with a caret; its panel
+   hangs below the bar. Full bar height so every panel, the account one
+   included, opens at the same distance under the bar's edge. */
+.el .nav-group { position: relative; display: flex; align-items: center; height: var(--nav-h); }
+.el .nav-trigger {
+  gap: 5px;
+  background: none; border: 0; cursor: pointer;
+  font-family: inherit;
+}
+.el .nav-trigger[aria-expanded="true"] { color: var(--text-1); }
+.el .nav-caret { transition: transform 0.15s; }
+.el .nav-trigger[aria-expanded="true"] .nav-caret { transform: rotate(180deg); }
+
+.el .nav-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 120;
+  min-width: 200px; padding: 6px;
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+/* `hidden` loses to any author `display`, so it has to be restated. */
+.el .nav-menu[hidden] { display: none; }
+.el .nav-menu-end { left: auto; right: 0; }
+
+.el .nav-menu-link {
+  display: flex; align-items: center; width: 100%;
+  padding: 8px 10px;
+  border: 0; border-radius: var(--r);
+  background: none; text-align: left; cursor: pointer;
+  font-family: inherit; font-size: 13.5px; font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.el .nav-menu-link:hover { background: var(--surface-hover); color: var(--text-1); }
+.el .nav-menu-link.active { background: var(--accent-soft); color: var(--text-1); font-weight: 600; }
+.el .nav-menu-head { padding: 6px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.el .nav-menu-name { color: var(--text-1); font-size: 13.5px; font-weight: 600; }
+.el .nav-menu-email { color: var(--text-3); font-size: 12px; }
+
 .el .nav-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* index.css gives the search a sidebar's margins and no width of its own; in
+   the bar it gets a fixed one, and its results open at a readable width even
+   when the field itself narrows on smaller screens. */
+.el .nav-right .stock-search { margin: 0; width: 240px; }
+.el .nav-right .stock-search-panel { left: auto; right: 0; width: max(100%, 340px); }
+
+/* 861–1100px: the bar still holds logo, five entries, search and avatar
+   because the gaps and the search field give way. */
+@media (max-width: 1100px) {
+  .el .nav-in { gap: 16px; }
+  .el .nav-right .stock-search { width: 180px; }
+}
+@media (max-width: 960px) {
+  .el .nav-link { padding: 0 9px; }
+  .el .nav-link.active::after { left: 9px; right: 9px; }
+  .el .nav-right .stock-search { width: 150px; }
+}
 
 .el .avatar {
   width: 30px; height: 30px;
@@ -511,9 +568,32 @@
     min-height: 48px;              /* touch target */
   }
   .el .botnav-item.active { color: var(--accent); }
+  .el button.botnav-item { background: none; border: 0; cursor: pointer; font-family: inherit; }
+
+  /* "More": every page the four tabs leave out, in a sheet over the bottom
+     bar. Before it, eight pages had no way in on a phone except links from
+     other pages. The bar (z-index 150) sits over the sheet's foot, so the
+     padding keeps the last link clear of it. */
+  .el .nav-sheet {
+    display: flex; flex-direction: column; gap: 1px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 140;
+    max-height: 75vh; overflow-y: auto;
+    padding: 8px 12px calc(72px + env(safe-area-inset-bottom));
+    background: var(--surface-2);
+    border-top: 1px solid var(--line-strong);
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    box-shadow: var(--shadow-pop);
+  }
+  .el .nav-sheet .nav-menu-link { min-height: 44px; padding: 11px 10px; } /* touch targets */
+  .el .nav-sheet-h {
+    padding: 12px 10px 4px;
+    font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-3);
+  }
 }
 
-@media (min-width: 861px) { .el .botnav { display: none; } }
+.el .nav-sheet[hidden] { display: none; }
+@media (min-width: 861px) { .el .botnav, .el .nav-sheet { display: none; } }
 
 @media (max-width: 1080px) {
   .el .col-hide-lg { display: none; }

@@ -77,7 +77,7 @@ export default function StockSearch() {
       <input
         type="text"
         value={query}
-        placeholder="Search any NSE stock..."
+        placeholder="Search stocks…"
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
