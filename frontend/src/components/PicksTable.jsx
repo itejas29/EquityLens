@@ -258,15 +258,21 @@ export default function PicksTable({ signals, watchlist = [], quotes = {} }) {
             </table>
           </div>
 
-          {/* Mobile cards — same data source, reduced to what fits a phone */}
+          {/* Mobile cards — same data source, reduced to what fits a phone.
+              The card is a plain container, not a link: a link wrapping the
+              whole card put the Trade link inside another link, which is
+              invalid HTML and announced as one control by screen readers.
+              The symbol is the stock link, stretched over the card by
+              .card-stretch so a tap anywhere still opens the stock; Trade is a
+              sibling raised above that overlay. */}
           <div className="cards">
             {rows.map((s) => {
               const chg = changePct(s);
               return (
-                <Link to={`/stocks/${s.symbol}`} key={s.symbol} className="card-row">
+                <div key={s.symbol} className="card-row card-stretch">
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                     <span className="rank-cell num">{s.rank}</span>
-                    <span className="sym">{s.symbol}</span>
+                    <Link to={`/stocks/${s.symbol}`} className="sym card-stretch-link">{s.symbol}</Link>
                   </div>
                   <div className="card-r">
                     <span className="price num">{s.live_price == null ? "—" : inr(s.live_price)}</span>
@@ -280,15 +286,15 @@ export default function PicksTable({ signals, watchlist = [], quotes = {} }) {
                           Score {s.overall_score.toFixed(0)} · Entry zone: {inr(s.entry_low)} – {inr(s.entry_high)}
                         </span>
                       </div>
-                      <Link 
-                        to={`/paper?buy=${s.symbol}`} 
-                        className="btn btn-sm" 
-                        onClick={(e) => e.stopPropagation()}
+                      <Link
+                        to={`/paper?buy=${s.symbol}`}
+                        className="btn btn-sm card-stretch-above"
+                        aria-label={`Trade ${s.symbol}`}
                       >
                         Trade
                       </Link>
                     </div>
-                </Link>
+                </div>
               );
             })}
           </div>

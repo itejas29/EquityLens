@@ -569,6 +569,12 @@
     background: var(--surface);
   }
   .el .card-row:last-child { border-bottom: 0; }
+  /* A card with its own action (PicksTable): the card's link is one element
+     whose ::after covers the card, and the action sits above that layer, so
+     the two are sibling tap targets rather than a link inside a link. */
+  .el .card-stretch { position: relative; }
+  .el .card-stretch-link::after { content: ""; position: absolute; inset: 0; }
+  .el .card-stretch-above { position: relative; z-index: 1; }
   .el .card-l2 { grid-column: 1; display: flex; align-items: center; gap: 8px; }
   .el .card-r  { grid-row: 1 / span 2; grid-column: 2; text-align: right;
              display: flex; flex-direction: column; justify-content: center; gap: 4px; }

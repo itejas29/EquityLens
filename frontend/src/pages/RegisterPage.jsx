@@ -69,7 +69,7 @@ export default function RegisterPage() {
         aria-modal="true"
         aria-label="Site menu"
         aria-hidden={!menuOpen}
-        {...(!menuOpen ? { inert: "" } : {})}
+        {...(!menuOpen ? { inert: true } : {})}
       >
         <div className="mobile-menu__backdrop" onClick={closeMenu} aria-hidden="true" />
         <ul className="mobile-menu__links">
