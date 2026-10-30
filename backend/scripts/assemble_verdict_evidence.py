@@ -48,6 +48,7 @@ from app.core.v1_strategy import V1_DESCRIPTION, V1_VERSION  # noqa: E402
 BACKTEST = REPO / "docs/experiments/phase23_normalized_momentum/results.json"
 TRACK = REPO / "docs/audit/momentum_v1.0/raw/track_record.json"
 LEDGER = REPO / "docs/audit/momentum_v1.0/raw/paper_ledger.json"
+SURVIVORSHIP = REPO / "docs/experiments/phase24_survivorship/results.json"
 OUT = BACKEND / "app/core/verdict_artifacts/momentum_v1.0.evidence.json"
 LIVE_ARM = "v1_raw|default"
 
@@ -69,6 +70,7 @@ def main() -> None:
     bt = json.loads(BACKTEST.read_text())
     track = json.loads(TRACK.read_text())
     ledger = json.loads(LEDGER.read_text())
+    p24 = json.loads(SURVIVORSHIP.read_text())["summary"]["survivorship_free_vs_nifty50"]
 
     folds = [{
         "fold": f["fold"],
@@ -87,7 +89,7 @@ def main() -> None:
                     "code identifier in app/core/v1_strategy.py it maps to. The baseline includes the "
                     "Phase 17 trend gate, which is why the code string reads v1.1."),
         "sources": {
-            str(p.relative_to(REPO)): _file_sha(p) for p in (BACKTEST, TRACK, LEDGER)
+            str(p.relative_to(REPO)): _file_sha(p) for p in (BACKTEST, TRACK, LEDGER, SURVIVORSHIP)
         },
         "backtest": {
             "source": str(BACKTEST.relative_to(REPO)),
@@ -103,8 +105,9 @@ def main() -> None:
             "known_biases": [
                 {"id": "survivors_only_universe", "direction": "favours_strategy",
                  "note": "Membership is drawn from today's active stocks projected backwards (audit finding "
-                         "#2). Names that delisted are excluded, and they are the ones momentum is most "
-                         "exposed to on the way down. Not yet measured: phase21_survivorship has not run."},
+                         "#2). Measured in Phase 24 on the fixed engine: survivors-only beat a survivorship-free "
+                         "universe by +3.00pp per fold on average, and the survivorship-free excess over NIFTY 50 "
+                         "is about zero (survivorship_free_confirmation)."},
                 {"id": "benchmark_price_index", "direction": "favours_strategy",
                  "note": "The benchmark omits dividends; a total-return benchmark would be harder to beat."},
                 {"id": "benchmark_pays_no_costs", "direction": "against_strategy",
@@ -130,11 +133,21 @@ def main() -> None:
             {"check": "not_dependent_on_single_sector",
              "source": None,
              "reason": "No committed evidence attributes the strategy's returns by sector."},
+        ],
+        # Phase 24's pre-registered rule needs the survivorship-free median fold
+        # excess AND its leave-one-out minimum mean above 0; both above 0 is the
+        # same as the smaller of the two above 0, which is what is recorded.
+        "eligible_evidence": [
             {"check": "survivorship_free_confirmation",
-             "source": "backend/scripts/phase21_survivorship.py",
-             "reason": "The survivorship-free re-run exists as a script but has not been run. The primary "
-                       "evidence is survivors-only, a bias that favours the strategy, so an edge on it alone "
-                       "would not be established."},
+             "source": str(SURVIVORSHIP.relative_to(REPO)),
+             "measured": min(p24["median_pp"], p24["leave_one_out_mean_min_pp"]),
+             "threshold": 0.0,
+             "comparison": ">",
+             "detail": (f"Phase 24: frozen V1 on a survivorship-free universe (each fold's top 500 NSE company "
+                        f"shares by traded value from NSE's bhavcopies, later-delisted companies included; fixed "
+                        f"engine): median fold excess over NIFTY 50 {p24['median_pp']:+.2f}pp, mean after dropping "
+                        f"any one fold as low as {p24['leave_one_out_mean_min_pp']:+.2f}pp; recorded is the smaller, "
+                        f"and the pre-registered rule needs both above 0")},
         ],
         "live_track_record": track,
         "paper_ledger": {

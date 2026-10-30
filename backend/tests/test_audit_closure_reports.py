@@ -89,7 +89,8 @@ def test_conclusions_follow_the_verdict_rather_than_being_typed():
     # edge failing on the live record alone.
     original = (OUT / "momentum_v1.0_audit_closure.md").read_text()
     assert "1. **Is the measurement system correct?** Yes — PASS." in original
-    assert "The strategy failed `live_paper_beats_benchmark`." in original
+    assert "The strategy failed " in original
+    assert "`live_paper_beats_benchmark`" in original and "`survivorship_free_confirmation`" in original
     assert "Fix the open execution defects" not in original
 
     # A counterfactual with an execution defect failing again must change every

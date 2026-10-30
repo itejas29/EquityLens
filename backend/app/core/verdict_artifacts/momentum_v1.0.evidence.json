@@ -712,7 +712,7 @@
       {
         "direction": "favours_strategy",
         "id": "survivors_only_universe",
-        "note": "Membership is drawn from today's active stocks projected backwards (audit finding #2). Names that delisted are excluded, and they are the ones momentum is most exposed to on the way down. Not yet measured: phase21_survivorship has not run."
+        "note": "Membership is drawn from today's active stocks projected backwards (audit finding #2). Measured in Phase 24 on the fixed engine: survivors-only beat a survivorship-free universe by +3.00pp per fold on average, and the survivorship-free excess over NIFTY 50 is about zero (survivorship_free_confirmation)."
       },
       {
         "direction": "favours_strategy",
@@ -740,6 +740,16 @@
     "source": "docs/experiments/phase23_normalized_momentum/results.json",
     "universe": "point-in-time top 500 by 20-day traded value at each fold start, drawn from a 1000-stock pool of currently active names (lab built 2026-10-30)"
   },
+  "eligible_evidence": [
+    {
+      "check": "survivorship_free_confirmation",
+      "comparison": ">",
+      "detail": "Phase 24: frozen V1 on a survivorship-free universe (each fold's top 500 NSE company shares by traded value from NSE's bhavcopies, later-delisted companies included; fixed engine): median fold excess over NIFTY 50 -0.03pp, mean after dropping any one fold as low as -1.61pp; recorded is the smaller, and the pre-registered rule needs both above 0",
+      "measured": -1.61,
+      "source": "docs/experiments/phase24_survivorship/results.json",
+      "threshold": 0.0
+    }
+  ],
   "governance": {
     "data_terms_reviewed": {
       "detail": "yfinance terms of use have not been reviewed for this use, private or otherwise (as of 2026-09-13).",
@@ -775,11 +785,6 @@
       "check": "not_dependent_on_single_sector",
       "reason": "No committed evidence attributes the strategy's returns by sector.",
       "source": null
-    },
-    {
-      "check": "survivorship_free_confirmation",
-      "reason": "The survivorship-free re-run exists as a script but has not been run. The primary evidence is survivors-only, a bias that favours the strategy, so an edge on it alone would not be established.",
-      "source": "backend/scripts/phase21_survivorship.py"
     }
   ],
   "live_track_record": {
@@ -877,7 +882,8 @@
   "sources": {
     "docs/audit/momentum_v1.0/raw/paper_ledger.json": "0366d38aa68c9fb83391aff4a0d35011b7bf6544f2d8f6daf826a1604aea3ca4",
     "docs/audit/momentum_v1.0/raw/track_record.json": "ab31af22eb788fc53ef773a2e4ea77fc9442d4b7b23ac78f3f80d5b5a6112cdf",
-    "docs/experiments/phase23_normalized_momentum/results.json": "d6bd4c0f9b0e417656f3c37ce374a58cdef7527ec22694b62d652a0415c5aeae"
+    "docs/experiments/phase23_normalized_momentum/results.json": "d6bd4c0f9b0e417656f3c37ce374a58cdef7527ec22694b62d652a0415c5aeae",
+    "docs/experiments/phase24_survivorship/results.json": "b413d4a8bf1110ea1a3b7746e9abe7da818ab954908ca0f966c652bd13c6a6a7"
   },
   "strategy_description": "Momentum (12m-1m) ranking, equal-weight sizing, 4 ATR stop, no support stop, NIFTY 200DMA regime filter at 25% bear exposure, immediate re-entry, monthly rebalance, 5-day recent-trend entry gate.",
   "strategy_id": "momentum_v1.0",

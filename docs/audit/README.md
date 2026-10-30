@@ -53,6 +53,14 @@ returns, and more than average for momentum.
 `include_inactive` exists and defaults to False so published phases stay
 reproducible. Closing the delisting hole was a prerequisite: a position whose
 stock stopped having bars was held forever at its last traded price.
+
+**Measured 2026-10-30 (Phase 24, fixed engine).** Each fold's universe was
+rebuilt from NSE's own daily bhavcopies — company shares that actually traded
+then, including 71 later delisted — and compared with the same ranking
+restricted to today's pool. Survivors-only beat survivorship-free by +3.00pp
+per 6-month fold (median +2.56pp); survivorship-free, V1's median excess over
+NIFTY 50 is −0.03pp. In April 2018, 136 of the true top 500 were missing from
+today's pool. `docs/experiments/phase24_survivorship/FINDINGS.md`.
 [survivorship-bias.md](survivorship-bias.md) · [net-bias.md](net-bias.md)
 
 ### 3. Six unauthenticated write endpoints, and a free login DoS — HIGH, fixed
@@ -254,8 +262,10 @@ lower price. Every backtest before the fix understated V1.
 1. ~~Nothing here is deployed.~~ Deployed 2026-09-10 and 2026-09-11.
 2. ~~TDPOWERSYS needs a one-off full re-pull.~~ Done 2026-09-11 with
    `scripts/repair_price_history.py` (and PGIL, #17).
-3. **Quantify survivorship** — `scripts/phase21_survivorship.py`, not yet run.
-   Needs a lab seeded with the 1,000-stock pool.
+3. ~~Quantify survivorship~~ Measured 2026-10-30 (Phase 24): each fold's
+   universe rebuilt from NSE's own bhavcopies, later-delisted companies
+   included. Survivors-only beat survivorship-free by +3.00pp per 6-month fold;
+   survivorship-free, V1's median excess over NIFTY 50 is −0.03pp.
 4. **Retrain the ML model.** Published metrics predate both leak fixes and the
    stored artifact was fitted on 31 features against a current default of 25.
 5. ~~Fix the two execution defects (#19, #20)~~ Fixed 2026-10-30, and V1's

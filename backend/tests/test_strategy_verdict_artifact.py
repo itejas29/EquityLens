@@ -9,11 +9,11 @@ the backtest engine (gap-down stops filled at the stop; entries filled on the
 signal bar) failed measurement. Both were fixed on 2026-10-30, V1's folds were
 re-run on the fixed engine (Phase 23's v1_raw arm), and the verdict is now
 Measurement PASS / Edge FAIL / Promotion BLOCKED — what the original plan
-anticipated, for a narrower reason than it expected: every backtest check
-passes, and the live record fails. The backtest evidence is survivors-only and
-its survivorship-free confirmation is NOT_EVALUATED, so the backtest passes do
-not establish an edge either. test_the_current_result_and_what_decides_it pins
-exactly that.
+anticipated. Every survivors-only backtest check passes; the edge fails on the
+live record and, since Phase 24 measured it, on the survivorship-free
+confirmation — the backtest excess disappears once companies that later
+delisted or faded are put back. test_the_current_result_and_what_decides_it
+pins exactly that.
 """
 
 import ast
@@ -102,13 +102,14 @@ def test_the_current_result_and_what_decides_it():
     assert {k for k, s in m.items() if s != "PASS"} == set(), m
 
     e = {c["name"]: c["status"] for c in v.evidence["edge_checks"]}
-    # On the fixed engine every backtest check passes; the live record is what fails.
-    assert {k for k, s in e.items() if s == "FAIL"} == {"live_paper_beats_benchmark"}
+    # On the fixed engine every survivors-only backtest check passes; what fails
+    # is the survivorship-free confirmation (Phase 24) and the live record.
+    assert {k for k, s in e.items() if s == "FAIL"} == {"live_paper_beats_benchmark", "survivorship_free_confirmation"}
     assert {k for k, s in e.items() if s == "PASS"} == {
         "beats_primary_benchmark_after_costs", "positive_median_fold_excess_return",
         "not_dependent_on_single_fold", "drawdown_within_tolerance",
     }
-    assert {k for k, s in e.items() if s == "NOT_EVALUATED"} == set(sv.COMPARISON_CHECKS)
+    assert {k for k, s in e.items() if s == "NOT_EVALUATED"} == set(sv.COMPARISON_CHECKS) - {"survivorship_free_confirmation"}
 
     fig = v.evidence["edge_figures"]
     # Positive, and not carried by any one fold — on a survivors-only universe.
