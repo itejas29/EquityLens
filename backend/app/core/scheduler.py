@@ -291,6 +291,13 @@ def _yahoo_ticker(symbol: str) -> str:
     return symbol if symbol.startswith("^") else f"{symbol}.NS"
 
 
+def _bar_time_ist(ts) -> datetime:
+    """A yfinance intraday bar's timestamp, in IST. NSE intraday bars come back
+    tz-aware; a naive one is NSE local time, which is IST."""
+    stamp = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+    return stamp.replace(tzinfo=IST) if stamp.tzinfo is None else stamp.astimezone(IST)
+
+
 def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
     """Blocking yfinance call — run in executor thread.
 
@@ -333,6 +340,16 @@ def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
             df = df.dropna(subset=["Close"])
             if df.empty:
                 continue
+            # period="1d" means "the most recent session", not "today": on an
+            # NSE holiday, or before a symbol's first trade of the day, Yahoo
+            # returns the PREVIOUS session's bars. Those used to be stamped with
+            # the fetch time and published as a live quote, so a holiday showed
+            # a "live" tape of stale prices and the AI paper account judged
+            # stops and entries against it. A bar that is not from today is not
+            # a live quote and is dropped.
+            bar_time = _bar_time_ist(df.index[-1])
+            if bar_time.date() != datetime.now(IST).date():
+                continue
             last      = df.iloc[-1]
             first_cls = float(df["Close"].iloc[0])
             price     = float(last["Close"])
@@ -344,7 +361,10 @@ def _download_prices(symbols: list[str], timeout: int | None = None) -> dict:
                 "change":     round(change, 2),
                 "change_pct": round(pct, 2),
                 "volume":     vol,
-                "timestamp":  datetime.now(IST).isoformat(),
+                # The bar's own time, not the fetch time: this is what the UI
+                # labels freshness from, and what tells a quote carried over
+                # from an earlier tick apart from one that just traded.
+                "timestamp":  bar_time.isoformat(),
             }
         except Exception as exc:
             logger.debug("Price parse error for %s: %s", sym, exc)
@@ -1178,6 +1198,8 @@ def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
     if result.stale_marked:
         names = ", ".join(escape(s) for s in result.stale_marked)
         lines.append(f"⚠️ {names} checked against the previous close, not a live quote")
+    for s in result.entries_skipped:
+        lines.append(f"⚠️ Did not enter {escape(s['symbol'])}: {escape(s['reason'])}")
     return "\n".join(lines)
 
 
@@ -1228,7 +1250,7 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
         # Also notify on a degraded cycle, not only an active one. A day where
         # nothing traded BECAUSE nothing could be priced is exactly the day
         # that must not pass in silence.
-        if result.bought or result.sold or result.risk_checks_degraded:
+        if result.bought or result.sold or result.risk_checks_degraded or result.entries_skipped:
             account = get_ai_trader_account(db)
             equity = get_account_summary(db, account.user_id).equity
             db.commit()
@@ -1246,6 +1268,7 @@ async def ai_trading_loop() -> None:
     logger.info(
         "AI trading loop started — runs at %02d:%02d IST", AI_TRADING_RUN_HOUR, AI_TRADING_RUN_MINUTE
     )
+    waited = 0  # minutes spent waiting for a live tape, for a throttled warning
     while True:
         await _idle("ai-trading", 60)
         try:
@@ -1260,6 +1283,20 @@ async def ai_trading_loop() -> None:
                 continue
             if heavy_job_running():
                 continue
+            # No live tape, no cycle. A weekday is not always a trading day:
+            # on an NSE holiday (or with the price feed down) the only prices
+            # are the last session's. A cycle run then re-judged every stop
+            # against a close it had already been judged against, could close
+            # a position on a day the exchange was shut, and — on the month's
+            # first weekday — spent the month's only rebalance on stale
+            # prices. The day's row is reserved only once a cycle really runs,
+            # so this keeps retrying each minute until the tape is live.
+            if not _is_market_hours() or get_live_prices() is None:
+                waited += 1
+                if waited % 30 == 1:
+                    logger.warning("ai_trading.waiting date=%s reason=no_live_tape", today)
+                continue
+            waited = 0
 
             logger.info("ai_trading.starting date=%s", today)
             async with _heavy_job("ai-trading"):

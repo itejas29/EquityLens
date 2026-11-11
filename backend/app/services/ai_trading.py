@@ -53,6 +53,10 @@ class AITradingCycleResult:
     # live quote — see _marks_with_source(). The check happened; it happened on
     # a price that predates any overnight gap.
     stale_marked: list[str] = field(default_factory=list)
+    # Shortlisted names the buy pass wanted and did not enter, each with the
+    # reason: no live quote to judge the entry zone against, or the paper
+    # account refused the order. Not "out of zone" — that is the rule working.
+    entries_skipped: list[dict] = field(default_factory=list)
 
     @property
     def risk_checks_degraded(self) -> bool:
@@ -232,15 +236,17 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
     return results, unpriced, stale_marked
 
 
-def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type, regime: dict) -> list[dict]:
+def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type,
+              regime: dict) -> tuple[list[dict], list[dict]]:
+    """Returns (bought, entries_skipped)."""
     signal_date, rows = get_daily_signals(db, as_of)
     if not rows:
-        return []
+        return [], []
 
     held_stock_ids = {t.stock_id for t in _open_trades(db, account)}
     slots_available = MAX_SIGNALS - len(held_stock_ids)
     if slots_available <= 0:
-        return []
+        return [], []
 
     open_trades = _open_trades(db, account)
     marks = _mark_prices(db, [t.stock_id for t in open_trades])
@@ -251,9 +257,10 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
     per_position_budget = equity / Decimal(MAX_SIGNALS)
 
     stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([r.stock_id for r in rows])).all()}
-    candidate_prices = _mark_prices(db, [r.stock_id for r in rows if r.stock_id not in held_stock_ids])
+    candidates = _marks_with_source(db, [r.stock_id for r in rows if r.stock_id not in held_stock_ids])
 
     results: list[dict] = []
+    skipped: list[dict] = []
     for row in sorted(rows, key=lambda r: r.rank):
         if slots_available <= 0 or invested >= target_invested:
             break
@@ -263,9 +270,17 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         if stock is None:
             continue
 
-        price = candidate_prices.get(row.stock_id)
+        price, source = candidates.get(row.stock_id, (None, None))
+        # An entry needs TODAY'S price. The entry zone is built around the
+        # previous close (close ± 0.5 ATR), so a held-over price — the frozen
+        # session snapshot or the stored bar — is always "in zone": with the
+        # tape down, every shortlisted name was bought at yesterday's close.
+        if source != MARK_SOURCE_TAPE:
+            skipped.append({"symbol": stock.symbol, "reason": "no live quote"})
+            logger.warning("ai_trading: no live quote for %s — entry not evaluated", stock.symbol)
+            continue
         state = trigger_state(price, to_money(row.entry_low), to_money(row.entry_high))
-        if state != "IN_ZONE" or price is None:
+        if state != "IN_ZONE":
             continue
 
         qty = int(per_position_budget // price)
@@ -274,7 +289,10 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
 
         try:
             trade = buy(db, user_id, stock.symbol, qty)
-        except PaperTradingError:
+        except PaperTradingError as exc:
+            # Used to be a bare `continue`: a refused order left no trace.
+            skipped.append({"symbol": stock.symbol, "reason": str(exc)})
+            logger.warning("ai_trading: buy of %s refused — %s", stock.symbol, exc)
             continue
 
         trade.stop_loss = row.stop_loss
@@ -284,7 +302,7 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         slots_available -= 1
         results.append({"symbol": stock.symbol, "quantity": qty, "price": price})
 
-    return results
+    return results, skipped
 
 
 def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
@@ -296,7 +314,7 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     # Stop / target / horizon are per-position rules the backtest evaluates on every
     # bar, so they run every cycle. The regime trim and new entries are rebalance-only.
     sold, unpriced, stale_marked = _sell_pass(db, account, user_id, as_of, regime, is_rebalance)
-    bought = _buy_pass(db, account, user_id, as_of, regime) if is_rebalance else []
+    bought, entries_skipped = _buy_pass(db, account, user_id, as_of, regime) if is_rebalance else ([], [])
 
     if unpriced:
         logger.error(
@@ -311,4 +329,5 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
 
     return AITradingCycleResult(as_of=as_of, regime=regime.get("regime", "unknown"),
                                 rebalanced=is_rebalance, bought=bought, sold=sold,
-                                unpriced=unpriced, stale_marked=stale_marked)
+                                unpriced=unpriced, stale_marked=stale_marked,
+                                entries_skipped=entries_skipped)

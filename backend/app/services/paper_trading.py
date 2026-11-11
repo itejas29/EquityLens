@@ -35,6 +35,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session
 
 from app.core.backtest_config import DEFAULT_TRANSACTION_COST_PCT
+from app.core.market_hours import IST
 from app.core.paper_trading_config import DEFAULT_VIRTUAL_CAPITAL
 from app.models.paper_trading import PaperAccount, PaperTrade
 from app.models.price_history import PriceHistory
@@ -136,10 +137,14 @@ def get_or_create_account(db: Session, user_id: int, for_update: bool = False) -
 
 
 def _latest_close(db: Session, stock_id: int) -> Decimal | None:
-    row = db.query(PriceHistory).filter(PriceHistory.stock_id == stock_id).order_by(PriceHistory.date.desc()).first()
-    if row is None or row.close is None:
-        return None
-    return to_money(row.close)
+    # The newest bar WITH a close. Yahoo's row for a still-forming session can
+    # carry a NULL close; taking the newest row regardless made such a stock
+    # unpriceable — unsellable, and its stop unevaluated — although the close
+    # one row earlier was right there.
+    row = (db.query(PriceHistory)
+           .filter(PriceHistory.stock_id == stock_id, PriceHistory.close.isnot(None))
+           .order_by(PriceHistory.date.desc()).first())
+    return None if row is None else to_money(row.close)
 
 
 def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, Decimal]:
@@ -162,8 +167,34 @@ def _mark_prices(db: Session, stock_ids: list[int]) -> dict[int, Decimal]:
 # How a mark was arrived at. This is not decoration: the AI trading loop
 # evaluates stop-loss and target against these prices, and the three cases are
 # three different levels of confidence in that decision.
-MARK_SOURCE_TAPE = "tape"          # a quote from the live/session feed
+MARK_SOURCE_TAPE = "tape"          # a quote from today's live tape
+MARK_SOURCE_SNAPSHOT = "snapshot"  # the frozen last-session tape — see below
 MARK_SOURCE_STORED_CLOSE = "close" # the newest stored daily bar — see below
+
+
+def _quote_source(feed_status: str, quote: dict) -> str:
+    """Whether a feed quote is from today's live tape or a held-over price.
+
+    Any quote in the feed used to count as "tape". But when the live tape is
+    absent, get_price_feed() serves the frozen last-session snapshot (status
+    "closed"), and even a live tape carries a symbol's previous quote forward
+    when a tick returns nothing for it. Both are yesterday's price by 09:20 the
+    next morning — the exact case the stored-close flag exists for — and both
+    were reported as live. Live means: the feed is live AND the quote's own
+    bar time is today (IST). A quote with no timestamp is judged on the feed
+    status alone.
+    """
+    if feed_status != "live":
+        return MARK_SOURCE_SNAPSHOT
+    stamp = quote.get("timestamp")
+    if stamp:
+        try:
+            quoted = datetime.fromisoformat(stamp)
+        except (TypeError, ValueError):
+            return MARK_SOURCE_SNAPSHOT
+        if quoted.tzinfo is not None and quoted.astimezone(IST).date() != datetime.now(IST).date():
+            return MARK_SOURCE_SNAPSHOT
+    return MARK_SOURCE_TAPE
 
 
 def _marks_with_source(db: Session, stock_ids: list[int]) -> dict[int, tuple[Decimal, str]]:
@@ -191,7 +222,7 @@ def _marks_with_source(db: Session, stock_ids: list[int]) -> dict[int, tuple[Dec
         quote = feed.prices.get(symbol)
         price = quote.get("price") if quote else None
         if price is not None:
-            marks[stock_id] = (to_money(price), MARK_SOURCE_TAPE)
+            marks[stock_id] = (to_money(price), _quote_source(feed.status, quote))
             continue
         close = _latest_close(db, stock_id)
         if close is not None:
