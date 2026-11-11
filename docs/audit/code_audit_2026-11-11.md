@@ -10,7 +10,7 @@ under "Not checked".
 
 ## Bugs found and fixed
 
-All five are one family: a price from the previous session passing as today's.
+All six are one family: a price from the previous session passing as today's.
 They were fixed together in `af35cf3`, with `backend/tests/test_stale_quotes.py`.
 
 | # | Severity | Where | Bug | Fix |
