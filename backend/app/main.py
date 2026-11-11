@@ -20,6 +20,7 @@ from app.core.scheduler import (
     health_watchdog_loop,
     price_refresh_loop,
     supervise,
+    weekly_summary_loop,
     weekly_universe_rebuild_loop,
 )
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
         ("weekly-universe-rebuild", weekly_universe_rebuild_loop),
         ("fundamentals-refresh", fundamentals_refresh_loop),
         ("ai-trading", ai_trading_loop),
+        ("weekly-summary", weekly_summary_loop),
         ("health-watchdog", health_watchdog_loop),
     ]
     tasks = [asyncio.create_task(supervise(name, factory), name=name) for name, factory in loops]

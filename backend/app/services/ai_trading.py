@@ -10,7 +10,7 @@ see AITradingCycleResult for what a caller gets back.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date as date_type
+from datetime import date as date_type, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.core.ai_trading_config import AI_TRADER_EMAIL, AI_TRADER_NAME
 from app.core.daily_signals_config import MAX_SIGNALS
 from app.core.security import hash_password
 from app.core.v1_strategy import V1
+from app.models.ai_trading_log import AITradingLog, AITradingSetting
 from app.models.paper_trading import PaperAccount, PaperTrade
 from app.models.stock import Stock
 from app.models.user import User
@@ -36,6 +37,51 @@ from app.services.paper_trading import (
 
 
 logger = logging.getLogger(__name__)
+
+SETTINGS_ROW_ID = 1
+# What the UI and the alerts call the two regimes (the crash-brake card's words).
+REGIME_LABEL = {"bull": "NORMAL", "bear": "CAUTION"}
+
+
+def is_enabled(db: Session) -> bool:
+    """Whether the daily cycle may run. No row means off: the switch is opt-in."""
+    row = db.get(AITradingSetting, SETTINGS_ROW_ID)
+    return bool(row and row.enabled)
+
+
+def set_enabled(db: Session, enabled: bool, by: str | None, as_of: date_type) -> bool:
+    """Flip the switch and record who did it in the decision log.
+
+    Off pauses the WHOLE cycle — entries and the stop/target checks alike.
+    Positions already open stay open and unwatched until it is switched on.
+    """
+    row = db.get(AITradingSetting, SETTINGS_ROW_ID)
+    if row is None:
+        row = AITradingSetting(id=SETTINGS_ROW_ID, enabled=enabled)
+        db.add(row)
+    row.enabled = enabled
+    row.updated_by = by
+    row.updated_at = datetime.now(timezone.utc)
+    log_decision(db, as_of, "toggle",
+                 f"Automated paper trading switched {'ON' if enabled else 'OFF'}" + (f" by {by}" if by else ""))
+    return enabled
+
+
+def log_decision(db: Session, run_date: date_type, action: str, reason: str, symbol: str | None = None,
+                 quantity: int | None = None, price: Decimal | None = None) -> None:
+    db.add(AITradingLog(run_date=run_date, action=action, symbol=symbol, quantity=quantity,
+                        price=price, reason=reason[:300]))
+
+
+def _last_regime(db: Session, as_of: date_type) -> str | None:
+    """The regime the previous completed cycle saw, to detect a flip."""
+    from app.models.ai_trading_run import AITradingRun
+
+    row = (db.query(AITradingRun.regime)
+           .filter(AITradingRun.run_date < as_of, AITradingRun.status == "complete",
+                   AITradingRun.regime.in_(["bull", "bear"]))
+           .order_by(AITradingRun.run_date.desc()).first())
+    return row[0] if row else None
 
 
 @dataclass
@@ -147,6 +193,14 @@ def _invested_value(trades: list[PaperTrade], marks: dict[int, Decimal]) -> Deci
     )
 
 
+def _sold(trade: PaperTrade, symbol: str, reason: str, as_of: date_type) -> dict:
+    basis = to_money(trade.cost_basis)
+    return {"symbol": symbol, "reason": reason, "pnl": trade.pnl, "quantity": trade.quantity,
+            "price": trade.exit_price,
+            "pnl_pct": (trade.pnl / basis * Decimal(100)) if basis > 0 else None,
+            "days": (as_of - trade.executed_at.date()).days}
+
+
 def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type,
                regime: dict, is_rebalance: bool) -> tuple[list[dict], list[str], list[str]]:
     """Returns (sold, unpriced_symbols, stale_marked_symbols)."""
@@ -179,6 +233,7 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
             logger.warning(
                 "ai_trading: no price for held position %s — stop/target NOT evaluated", stock.symbol
             )
+            log_decision(db, as_of, "skip", "No price available: stop and target not evaluated", stock.symbol)
             continue
         price, source = entry
         if source != MARK_SOURCE_TAPE:
@@ -196,10 +251,19 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
         elif (as_of - t.executed_at.date()).days >= V1.horizon_days:
             reason = "horizon"
 
+        basis = "" if source == MARK_SOURCE_TAPE else " (previous close, not a live quote)"
         if reason is not None:
             trade = sell(db, user_id, stock.symbol)
             trade.exit_reason = reason
-            results.append({"symbol": stock.symbol, "reason": reason, "pnl": trade.pnl})
+            results.append(_sold(trade, stock.symbol, reason, as_of))
+            why = {"stop": f"Price {price} at or below stop {t.stop_loss}",
+                   "target": f"Price {price} at or above target {t.target_price}",
+                   "horizon": f"Held {V1.horizon_days} days or more"}[reason]
+            log_decision(db, as_of, "sell", why + basis, stock.symbol, trade.quantity, trade.exit_price)
+        else:
+            log_decision(db, as_of, "hold",
+                         f"Price {price} between stop {t.stop_loss} and target {t.target_price}" + basis,
+                         stock.symbol, t.quantity, price)
 
     # Pass 2: regime exposure trim, weakest entry_score first, only if still over the
     # cap after pass 1 — and only on a rebalance day, matching backtest.py, which gates
@@ -231,7 +295,10 @@ def _sell_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_typ
                 trade = sell(db, user_id, stock.symbol)
                 trade.exit_reason = "regime"
                 invested -= (price or Decimal(0)) * Decimal(t.quantity)
-                results.append({"symbol": stock.symbol, "reason": "regime", "pnl": trade.pnl})
+                results.append(_sold(trade, stock.symbol, "regime", as_of))
+                log_decision(db, as_of, "sell",
+                             f"Regime trim: exposure above the {exposure_target:.0%} cap, weakest entry score first",
+                             stock.symbol, trade.quantity, trade.exit_price)
 
     return results, unpriced, stale_marked
 
@@ -262,12 +329,16 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
     results: list[dict] = []
     skipped: list[dict] = []
     for row in sorted(rows, key=lambda r: r.rank):
-        if slots_available <= 0 or invested >= target_invested:
-            break
-        if row.stock_id in held_stock_ids:
-            continue
         stock = stocks.get(row.stock_id)
         if stock is None:
+            continue
+        if row.stock_id in held_stock_ids:
+            log_decision(db, as_of, "skip", "Already held", stock.symbol)
+            continue
+        if slots_available <= 0 or invested >= target_invested:
+            log_decision(db, as_of, "skip",
+                         "No free slot" if slots_available <= 0
+                         else f"Exposure cap reached ({exposure_target:.0%} of equity)", stock.symbol)
             continue
 
         price, source = candidates.get(row.stock_id, (None, None))
@@ -278,13 +349,18 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         if source != MARK_SOURCE_TAPE:
             skipped.append({"symbol": stock.symbol, "reason": "no live quote"})
             logger.warning("ai_trading: no live quote for %s — entry not evaluated", stock.symbol)
+            log_decision(db, as_of, "skip", "No live quote: entry zone not evaluated", stock.symbol)
             continue
         state = trigger_state(price, to_money(row.entry_low), to_money(row.entry_high))
         if state != "IN_ZONE":
+            log_decision(db, as_of, "skip",
+                         f"Price {price} {'below' if state == 'BELOW_ZONE' else 'above'} the entry zone "
+                         f"{row.entry_low}–{row.entry_high}", stock.symbol, price=price)
             continue
 
         qty = int(per_position_budget // price)
         if qty <= 0:
+            log_decision(db, as_of, "skip", f"Price {price} exceeds the per-position budget", stock.symbol)
             continue
 
         try:
@@ -293,6 +369,7 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
             # Used to be a bare `continue`: a refused order left no trace.
             skipped.append({"symbol": stock.symbol, "reason": str(exc)})
             logger.warning("ai_trading: buy of %s refused — %s", stock.symbol, exc)
+            log_decision(db, as_of, "skip", f"Order refused: {exc}", stock.symbol)
             continue
 
         trade.stop_loss = row.stop_loss
@@ -300,7 +377,11 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         trade.entry_score = row.overall_score
         invested += price * Decimal(qty)
         slots_available -= 1
-        results.append({"symbol": stock.symbol, "quantity": qty, "price": price})
+        results.append({"symbol": stock.symbol, "quantity": qty, "price": price,
+                        "stop": row.stop_loss, "target": row.target_price})
+        log_decision(db, as_of, "buy",
+                     f"Rank {row.rank}, in entry zone {row.entry_low}–{row.entry_high}; "
+                     f"stop {row.stop_loss}, target {row.target_price}", stock.symbol, qty, trade.price)
 
     return results, skipped
 
@@ -311,6 +392,14 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     is_rebalance = _is_rebalance_day(db, as_of)
 
     regime = compute_market_regime(db, as_of)
+    previous = _last_regime(db, as_of)
+    now = regime.get("regime")
+    if previous and now in ("bull", "bear") and now != previous:
+        log_decision(db, as_of, "regime",
+                     f"Regime changed {REGIME_LABEL[previous]} → {REGIME_LABEL[now]}: NIFTY closed at "
+                     f"{regime.get('nifty_close')}, 200-day average {regime.get('nifty_200dma')}")
+    if not is_rebalance:
+        log_decision(db, as_of, "skip", "No new entries: not the month's rebalance day")
     # Stop / target / horizon are per-position rules the backtest evaluates on every
     # bar, so they run every cycle. The regime trim and new entries are rebalance-only.
     sold, unpriced, stale_marked = _sell_pass(db, account, user_id, as_of, regime, is_rebalance)
@@ -331,3 +420,52 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
                                 rebalanced=is_rebalance, bought=bought, sold=sold,
                                 unpriced=unpriced, stale_marked=stale_marked,
                                 entries_skipped=entries_skipped)
+
+
+
+def weekly_summary(db: Session, week_end: date_type) -> dict | None:
+    """The AI account's week ending `week_end` (a Friday), for the Telegram
+    summary. None if the account has no equity snapshot yet. Figures that
+    cannot be computed are left out, not estimated."""
+    from datetime import timedelta
+
+    from app.models.paper_trading import PaperEquitySnapshot
+
+    account = get_ai_trader_account(db)
+    week_start = week_end - timedelta(days=4)
+    snaps = (db.query(PaperEquitySnapshot).filter(PaperEquitySnapshot.account_id == account.id,
+                                                  PaperEquitySnapshot.date <= week_end)
+             .order_by(PaperEquitySnapshot.date.desc()).all())
+    if not snaps:
+        return None
+    last = snaps[0]
+    before = next((s for s in snaps if s.date < week_start), None)
+    out: dict = {"start": week_start, "end": week_end, "equity": last.total_equity,
+                 "max_positions": MAX_SIGNALS, "open": len(_open_trades(db, account))}
+    if before is not None and to_money(before.total_equity) > 0:
+        out["week_pct"] = (to_money(last.total_equity) / to_money(before.total_equity) - 1) * 100
+        # nifty_return is cumulative since the account opened, so the week's
+        # NIFTY move is the ratio of the two cumulative levels.
+        if last.nifty_return is not None and before.nifty_return is not None:
+            out["nifty_week_pct"] = ((100 + last.nifty_return) / (100 + before.nifty_return) - 1) * 100
+    if last.cumulative_return is not None and last.nifty_return is not None:
+        out["total_pct"], out["nifty_total_pct"] = last.cumulative_return, last.nifty_return
+
+    lo = datetime.combine(week_start, datetime.min.time(), tzinfo=timezone.utc)
+    hi = datetime.combine(week_end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    trades = db.query(PaperTrade, Stock.symbol).join(Stock, Stock.id == PaperTrade.stock_id).filter(
+        PaperTrade.account_id == account.id).all()
+    out["buys"] = sum(1 for t, _ in trades if lo <= _aware(t.executed_at) < hi)
+    closed = [(sym, t.pnl / to_money(t.cost_basis) * 100) for t, sym in trades
+              if t.exit_at is not None and lo <= _aware(t.exit_at) < hi
+              and t.pnl is not None and to_money(t.cost_basis) > 0]
+    out["sells"] = sum(1 for t, _ in trades if t.exit_at is not None and lo <= _aware(t.exit_at) < hi)
+    if closed:
+        out["best"] = max(closed, key=lambda c: c[1])
+        out["worst"] = min(closed, key=lambda c: c[1])
+    return out
+
+
+def _aware(stamp: datetime) -> datetime:
+    """SQLite hands back naive datetimes; they were stored as UTC."""
+    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=timezone.utc)

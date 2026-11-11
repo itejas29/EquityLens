@@ -625,6 +625,7 @@ def _generate_signals(as_of: date_type) -> int:
     try:
         rows = generate_daily_signals(db, as_of)
         db.commit()
+        _notify_shortlist(db, as_of, rows)
 
         # Update the pipeline run to record that signals were generated.
         pipeline_run = (
@@ -1172,35 +1173,52 @@ def _ai_trading_done_today(as_of: date_type) -> bool:
 
 
 def _ai_trading_notification_text(result, equity: Decimal | None) -> str:
-    """Build the Telegram body. Sent with parse_mode="HTML", so every value
-    interpolated here is escaped — five active NSE symbols contain "&"
-    (ARE&M, GVT&D, J&KBANK, M&M, M&MFIN) and an unescaped one makes Telegram
-    reject the entire message. See services/notifications.py.
-    """
-    kind = "monthly rebalance" if result.rebalanced else "daily stop/target check"
-    lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> "
-             f"({kind}, regime: {escape(result.regime)})"]
-    for b in result.bought:
-        lines.append(f"🟢 Bought {b['quantity']} {escape(b['symbol'])} @ ₹{b['price']:.2f}")
-    for s in result.sold:
-        pnl = s["pnl"]
-        sign = "+" if pnl >= 0 else "-"
-        lines.append(f"🔴 Sold {escape(s['symbol'])} ({escape(s['reason'])}) — {sign}₹{abs(pnl):.2f}")
-    if equity is not None:
-        lines.append(f"Equity: ₹{equity:,.2f}")
+    """The cycle's Telegram body — see services/telegram_messages.cycle_message."""
+    from app.services.telegram_messages import cycle_message
 
-    # A degraded risk check is the one thing here worth interrupting someone
-    # for, so it goes in the message rather than only the log. "Nothing sold"
-    # and "nothing could be checked" look identical otherwise.
-    if result.unpriced:
-        names = ", ".join(escape(s) for s in result.unpriced)
-        lines.append(f"⚠️ NO PRICE for {names} — stop/target not evaluated today")
-    if result.stale_marked:
-        names = ", ".join(escape(s) for s in result.stale_marked)
-        lines.append(f"⚠️ {names} checked against the previous close, not a live quote")
-    for s in result.entries_skipped:
-        lines.append(f"⚠️ Did not enter {escape(s['symbol'])}: {escape(s['reason'])}")
-    return "\n".join(lines)
+    return cycle_message(result, equity)
+
+
+def _ai_trading_enabled() -> bool:
+    from app.services.ai_trading import is_enabled
+
+    db = SessionLocal()
+    try:
+        return is_enabled(db)
+    finally:
+        db.close()
+
+
+def _notify_shortlist(db, as_of: date_type, rows) -> None:
+    """Send the morning shortlist, and a regime-change alert when the regime
+    differs from the one the previous published shortlist was built under.
+
+    Best-effort and after the commit: the shortlist is already published, and
+    nothing here may undo or delay that.
+    """
+    try:
+        from app.models.daily_signal import DailySignal
+        from app.models.stock import Stock
+        from app.services.daily_signals import compute_market_regime
+        from app.services.notifications import send_telegram_message
+        from app.services.telegram_messages import regime_change_message, shortlist_message
+
+        regime = compute_market_regime(db, as_of)
+        symbols = dict(db.query(Stock.id, Stock.symbol).filter(Stock.id.in_([r.stock_id for r in rows])).all()) \
+            if rows else {}
+        picks = [{"symbol": symbols.get(r.stock_id, "?"), "score": r.overall_score, "entry_low": r.entry_low,
+                  "entry_high": r.entry_high, "stop_loss": r.stop_loss, "target_price": r.target_price,
+                  "risk_reward": r.risk_reward} for r in sorted(rows, key=lambda r: r.rank)]
+        send_telegram_message(shortlist_message(as_of, regime, picks))
+
+        previous_date = (db.query(DailySignal.date).filter(DailySignal.date < as_of)
+                         .order_by(DailySignal.date.desc()).first())
+        if previous_date and regime.get("regime") in ("bull", "bear"):
+            before = compute_market_regime(db, previous_date[0]).get("regime")
+            if before in ("bull", "bear") and before != regime["regime"]:
+                send_telegram_message(regime_change_message(before, regime))
+    except Exception as exc:
+        logger.warning("notifications.shortlist.failed type=%s", type(exc).__name__)
 
 
 def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
@@ -1283,6 +1301,9 @@ async def ai_trading_loop() -> None:
                 continue
             if heavy_job_running():
                 continue
+            # The switch (AI Trading page). Off pauses the whole cycle.
+            if not await asyncio.get_event_loop().run_in_executor(_executor, _ai_trading_enabled):
+                continue
             # No live tape, no cycle. A weekday is not always a trading day:
             # on an NSE holiday (or with the price feed down) the only prices
             # are the last session's. A cycle run then re-judged every stop
@@ -1306,3 +1327,53 @@ async def ai_trading_loop() -> None:
                         today, bought, sold, rebalanced)
         except Exception as exc:
             logger.exception("AI trading cycle failed: %s", exc)
+
+
+# --- Weekly Telegram summary -------------------------------------------------
+
+WEEKLY_SUMMARY_HOUR = 9  # Saturday 09:00 IST: Friday's 20:00 snapshot is in by then
+
+
+def _send_weekly_summary(week_end: date_type) -> bool:
+    from app.core.redis_client import redis_client
+    from app.services.ai_trading import weekly_summary
+    from app.services.notifications import send_telegram_message
+    from app.services.telegram_messages import weekly_summary_message
+
+    # Once per week across restarts. SET NX is the claim; if Redis cannot be
+    # reached the summary is skipped rather than risk one message a minute.
+    key = f"telegram:weekly-summary:{week_end.isoformat()}"
+    try:
+        if not redis_client.set(key, "1", nx=True, ex=8 * 24 * 3600):
+            return False
+    except Exception as exc:
+        logger.warning("notifications.weekly.skipped reason=redis type=%s", type(exc).__name__)
+        return False
+
+    db = SessionLocal()
+    try:
+        summary = weekly_summary(db, week_end)
+        db.commit()
+        if summary is None:
+            return False
+        send_telegram_message(weekly_summary_message(summary))
+        return True
+    finally:
+        db.close()
+
+
+async def weekly_summary_loop() -> None:
+    """Sends the AI paper account's weekly summary on Saturday morning."""
+    logger.info("Weekly summary loop started — Saturdays %02d:00 IST", WEEKLY_SUMMARY_HOUR)
+    while True:
+        await _idle("weekly-summary", 300)
+        try:
+            now = datetime.now(IST)
+            if now.weekday() != 5 or now.hour < WEEKLY_SUMMARY_HOUR:
+                continue
+            friday = now.date() - timedelta(days=1)
+            sent = await asyncio.get_event_loop().run_in_executor(_executor, _send_weekly_summary, friday)
+            if sent:
+                logger.info("notifications.weekly.sent week_end=%s", friday)
+        except Exception as exc:
+            logger.exception("Weekly summary failed: %s", exc)
