@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
@@ -139,6 +139,12 @@ def _f(value) -> float | None:
     return None if value is None else float(value)
 
 
+def _ist_date(stamp: datetime):
+    """The IST calendar date of a stored timestamp. Timestamps are stored in
+    UTC; one that comes back without a zone (SQLite) is UTC, not local time."""
+    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).astimezone(IST).date()
+
+
 def _next_run(now: datetime) -> datetime:
     """The next weekday 09:20 IST strictly after `now`, or today's if it is
     still ahead. Weekdays only — the app has no exchange-holiday calendar."""
@@ -203,7 +209,7 @@ def ai_positions(current_user: User = Depends(get_current_user),
     out = []
     for h in summary.holdings:
         t, price = h.trade, h.current_price
-        entered = t.executed_at.astimezone(IST).date() if t.executed_at.tzinfo else t.executed_at.date()
+        entered = _ist_date(t.executed_at)
         out.append(AIPositionResponse(
             symbol=h.symbol, quantity=t.quantity, entry_date=entered, entry_price=float(t.price),
             current_price=_f(price), unrealized_pnl=_f(h.unrealized_pnl),
@@ -231,10 +237,10 @@ def ai_history(exit_reason: str | None = Query(None, pattern="^(stop|target|hori
     def view(t, sym) -> AIClosedTradeResponse:
         basis = Decimal(t.cost_basis)
         return AIClosedTradeResponse(
-            symbol=sym, entry_date=t.executed_at.date(), exit_date=t.exit_at.date(),
+            symbol=sym, entry_date=_ist_date(t.executed_at), exit_date=_ist_date(t.exit_at),
             entry_price=float(t.price), exit_price=float(t.exit_price), pnl=float(t.pnl),
             pnl_pct=float(t.pnl / basis * 100) if basis > 0 else None,
-            holding_days=(t.exit_at.date() - t.executed_at.date()).days, exit_reason=t.exit_reason)
+            holding_days=(_ist_date(t.exit_at) - _ist_date(t.executed_at)).days, exit_reason=t.exit_reason)
 
     rows = [view(t, sym) for t, sym in closed]
     # Stats cover every closed trade that matches the filter, not just this page.
