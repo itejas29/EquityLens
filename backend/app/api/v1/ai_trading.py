@@ -122,9 +122,10 @@ def ai_equity_curve(current_user: User = Depends(get_current_user), db: Session 
             "total_equity": float(s.total_equity),
             "cash": float(s.cash),
             "portfolio_value": float(s.portfolio_value),
-            "daily_return": float(s.daily_return) if s.daily_return else 0,
-            "cumulative_return": float(s.cumulative_return) if s.cumulative_return else 0,
-            "nifty_return": float(s.nifty_return) if s.nifty_return else 0,
+            # None stays None: a snapshot with no NIFTY figure must not plot as 0%.
+            "daily_return": float(s.daily_return) if s.daily_return is not None else None,
+            "cumulative_return": float(s.cumulative_return) if s.cumulative_return is not None else None,
+            "nifty_return": float(s.nifty_return) if s.nifty_return is not None else None,
             "drawdown": float(s.drawdown),
         }
         for s in snapshots
