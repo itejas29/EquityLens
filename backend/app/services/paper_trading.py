@@ -83,7 +83,8 @@ def _half_cost(fill_price: Decimal, quantity: int) -> Decimal:
     return fill_price * Decimal(quantity) * (TRANSACTION_COST / 2)
 
 
-def get_or_create_account(db: Session, user_id: int, for_update: bool = False) -> PaperAccount:
+def get_or_create_account(db: Session, user_id: int, for_update: bool = False,
+                          capital: Decimal = DEFAULT_VIRTUAL_CAPITAL) -> PaperAccount:
     """Fetch (or create) the account. Pass for_update=True before mutating it.
 
     CONCURRENCY. Postgres defaults to READ COMMITTED, under which
@@ -125,11 +126,13 @@ def get_or_create_account(db: Session, user_id: int, for_update: bool = False) -
     if account is not None:
         return account
 
+    # `capital` only applies when the account is created; an existing account
+    # keeps the capital it was opened with.
     account = PaperAccount(
         user_id=user_id,
-        virtual_capital=DEFAULT_VIRTUAL_CAPITAL,
-        cash=DEFAULT_VIRTUAL_CAPITAL,
-        peak_equity=DEFAULT_VIRTUAL_CAPITAL,
+        virtual_capital=capital,
+        cash=capital,
+        peak_equity=capital,
     )
     db.add(account)
     db.flush()

@@ -68,9 +68,24 @@ def cycle_message(result, equity: Decimal | None) -> str:
     lines = [f"<b>AI Trading — {result.as_of.isoformat()}</b> "
              f"({kind}, regime: {escape(REGIME_LABEL.get(result.regime, result.regime))}) — paper account"]
     for b in result.bought:
-        lines.append(f"🟢 AUTO BUY: {escape(b['symbol'])} × {b['quantity']} @ {_money(b['price'])}")
+        head = f"🟢 AUTO BUY: {escape(b['symbol'])} × {b['quantity']} @ {_money(b['price'])}"
+        head += f" = {_money(Decimal(str(b['price'])) * b['quantity'])}"
+        lines.append(head)
+        if b.get("rank") is not None and b.get("entry_low") is not None:
+            lines.append(f"   Reason: rank {b['rank']} momentum pick, in entry zone "
+                         f"{_money(b['entry_low'])}–{_money(b['entry_high'])}")
         if b.get("stop") is not None and b.get("target") is not None:
-            lines.append(f"   Stop {_money(b['stop'])} | Target {_money(b['target'])}")
+            risk = f" | R:R {Decimal(str(b['risk_reward'])):.2f}" if b.get("risk_reward") is not None else ""
+            lines.append(f"   Stop {_money(b['stop'])} | Target {_money(b['target'])}{risk}")
+    # An earlier AI account's positions closed by the fresh start — kept apart
+    # from the live account's sells so the records don't read as one book.
+    for s in getattr(result, "retired", []):
+        lines.append(f"♻️ RETIRED ACCOUNT SELL: {escape(s['symbol'])} × {s['quantity']} @ {_money(s['price'])}")
+        pnl = s["pnl"]
+        pnl_text = f"{'+' if pnl >= 0 else '−'}{_money(abs(pnl))}"
+        if s.get("pnl_pct") is not None:
+            pnl_text += f" ({_signed_pct(s['pnl_pct'])})"
+        lines.append(f"   Old account's position closed at the live price — P&amp;L: {pnl_text}")
     for s in result.sold:
         head = f"🔴 AUTO SELL: {escape(s['symbol'])}"
         if s.get("quantity") is not None and s.get("price") is not None:

@@ -15,7 +15,12 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.core.ai_trading_config import AI_TRADER_EMAIL, AI_TRADER_NAME
+from app.core.ai_trading_config import (
+    AI_TRADER_CAPITAL,
+    AI_TRADER_EMAIL,
+    AI_TRADER_NAME,
+    RETIRED_AI_TRADER_EMAILS,
+)
 from app.core.daily_signals_config import MAX_SIGNALS
 from app.core.security import hash_password
 from app.core.v1_strategy import V1
@@ -103,6 +108,9 @@ class AITradingCycleResult:
     # reason: no live quote to judge the entry zone against, or the paper
     # account refused the order. Not "out of zone" — that is the rule working.
     entries_skipped: list[dict] = field(default_factory=list)
+    # Positions of a RETIRED earlier AI account closed this cycle (the ₹15L
+    # fresh start). They belong to the old account, not this one's record.
+    retired: list[dict] = field(default_factory=list)
 
     @property
     def risk_checks_degraded(self) -> bool:
@@ -170,7 +178,42 @@ def get_ai_trader_account(db: Session) -> PaperAccount:
         user = User(name=AI_TRADER_NAME, email=AI_TRADER_EMAIL, password_hash=hash_password(secrets.token_hex(32)))
         db.add(user)
         db.flush()
-    return get_or_create_account(db, user.id)
+    return get_or_create_account(db, user.id, capital=AI_TRADER_CAPITAL)
+
+
+def _retire_previous_accounts(db: Session, as_of: date_type) -> list[dict]:
+    """Close whatever an earlier AI account still holds, on a live quote only.
+
+    The ₹15L fresh start (2026-11-13) switched the cycle to a new system user;
+    without this, the old account's open positions would sit unwatched forever —
+    no stop, no target, no horizon. Each is sold at the current tape price the
+    first market day a live quote exists, with exit_reason "retired" so the old
+    account's record says why. Runs inside the cycle's transaction; a stock
+    with no live quote today is simply tried again tomorrow."""
+    sold: list[dict] = []
+    for email in RETIRED_AI_TRADER_EMAILS:
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            continue
+        account = db.query(PaperAccount).filter(PaperAccount.user_id == user.id).first()
+        if account is None:
+            continue
+        trades = _open_trades(db, account)
+        if not trades:
+            continue
+        priced = _marks_with_source(db, [t.stock_id for t in trades])
+        stocks = {s.id: s for s in db.query(Stock).filter(Stock.id.in_([t.stock_id for t in trades])).all()}
+        for t in trades:
+            stock = stocks.get(t.stock_id)
+            entry = priced.get(t.stock_id)
+            if stock is None or entry is None or entry[1] != MARK_SOURCE_TAPE:
+                continue  # no live quote today — left open, retried next cycle
+            trade = sell(db, user.id, stock.symbol)
+            trade.exit_reason = "retired"
+            sold.append(_sold(trade, stock.symbol, "retired", as_of))
+            log_decision(db, as_of, "sell", "Account retired (₹15L fresh start): closed at the live price",
+                         stock.symbol, trade.quantity, trade.exit_price)
+    return sold
 
 
 def _open_trades(db: Session, account: PaperAccount) -> list[PaperTrade]:
@@ -378,7 +421,9 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
         invested += price * Decimal(qty)
         slots_available -= 1
         results.append({"symbol": stock.symbol, "quantity": qty, "price": price,
-                        "stop": row.stop_loss, "target": row.target_price})
+                        "stop": row.stop_loss, "target": row.target_price,
+                        "rank": row.rank, "entry_low": row.entry_low, "entry_high": row.entry_high,
+                        "risk_reward": row.risk_reward})
         log_decision(db, as_of, "buy",
                      f"Rank {row.rank}, in entry zone {row.entry_low}–{row.entry_high}; "
                      f"stop {row.stop_loss}, target {row.target_price}", stock.symbol, qty, trade.price)
@@ -389,6 +434,7 @@ def _buy_pass(db: Session, account: PaperAccount, user_id: int, as_of: date_type
 def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     account = get_ai_trader_account(db)
     user_id = db.query(PaperAccount.user_id).filter(PaperAccount.id == account.id).scalar()
+    retired = _retire_previous_accounts(db, as_of)
     is_rebalance = _is_rebalance_day(db, as_of)
 
     regime = compute_market_regime(db, as_of)
@@ -419,7 +465,7 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     return AITradingCycleResult(as_of=as_of, regime=regime.get("regime", "unknown"),
                                 rebalanced=is_rebalance, bought=bought, sold=sold,
                                 unpriced=unpriced, stale_marked=stale_marked,
-                                entries_skipped=entries_skipped)
+                                entries_skipped=entries_skipped, retired=retired)
 
 
 

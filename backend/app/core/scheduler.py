@@ -1268,7 +1268,8 @@ def _run_ai_trading_cycle(as_of: date_type) -> tuple[int, int, bool]:
         # Also notify on a degraded cycle, not only an active one. A day where
         # nothing traded BECAUSE nothing could be priced is exactly the day
         # that must not pass in silence.
-        if result.bought or result.sold or result.risk_checks_degraded or result.entries_skipped:
+        if (result.bought or result.sold or result.retired
+                or result.risk_checks_degraded or result.entries_skipped):
             account = get_ai_trader_account(db)
             equity = get_account_summary(db, account.user_id).equity
             db.commit()
