@@ -196,4 +196,15 @@ signal's trades:
 
 ## Changes after registration
 
-(none)
+1. **2026-11-13, before any return was computed: S5 parser bug fix, rule
+   unchanged.** A dry run on the downloaded releases showed the code was
+   reading the wrong text as each exclusion's "section heading":
+   - It looked only for lowercase `a)`-style markers, so it took index
+     sub-headers ("a) Nifty 50 …") for the heading.
+   - It missed the real headings ("1) Replacements on account of semi-annual
+     review …", "A. Replacement on account of … demerger …").
+
+   The code now finds headings by their wording ("… on account of …:" or
+   "… review …:"), and the registered rule is applied to them unchanged. On
+   the releases checked, the three semi-annual reviews (February 2025, August
+   2025, February 2026) now qualify and the six one-off replacements do not.

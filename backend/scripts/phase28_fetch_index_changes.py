@@ -153,12 +153,20 @@ def parse_release(text: str, valid: set[str]) -> tuple[list[dict], int]:
     c = "".join(compact)
     lower = c.lower()
 
-    # Part headings: "A) ..." / "A. ..." / "B) ..." up to the first colon.
-    parts = [(m.start(), m.group(0)) for m in re.finditer(r"(?<![a-z0-9])[a-h][.)][A-Z][^:]{5,300}:", c)]
+    # Part headings name why the stocks in that part change: "A. Replacements
+    # on account of semi-annual review of broad market indices:", "1)
+    # Replacement on account of scheme of arrangement ...:", or in older
+    # releases "A. Quarterly Review of indices:". Markers vary (A. / A) / 1)),
+    # so the heading is found by its wording, up to its colon. A release with
+    # no such heading is judged by its opening paragraph.
+    parts = [(m.start(), m.group(0)) for m in re.finditer(
+        r"replacements?(?:inindices|in[a-z0-9]{0,40}indices)?onaccountof[^:]{0,250}:"
+        r"|(?<=[a-z0-9][.)])(?:quarterly|semi-?annual|half-?yearly|annual|periodic|monthly)review[^:]{0,150}:",
+        lower)]
 
     def heading_at(pos: int) -> str:
         before = [h for p, h in parts if p < pos]
-        return before[-1] if before else c[:400]
+        return before[-1] if before else lower[:600]
 
     headers = [(m.start(), m.end(), m.group(1).lower()) for m in re.finditer(
         r"nifty(50|next50|500)(?=thefollowing|:thefollowing|-thefollowing|\(.{0,40}\)thefollowing)", lower)]
