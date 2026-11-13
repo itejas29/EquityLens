@@ -1,0 +1,481 @@
+{
+ "S1_insider_cluster_buy": {
+  "trades": 306,
+  "with_price_discontinuity": 2,
+  "top10": [
+   {
+    "public": "2020-03-20",
+    "symbol": "SAMMAANCAP",
+    "entry": "2020-03-23",
+    "exit": "2020-06-23",
+    "reason": "time",
+    "net": 206.3,
+    "bench": 30.66,
+    "excess": 175.64,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-05-22",
+    "symbol": "AARTIDRUGS",
+    "entry": "2020-05-26",
+    "exit": "2020-08-18",
+    "reason": "time",
+    "net": 174.7,
+    "bench": 24.11,
+    "excess": 150.59,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-24",
+    "symbol": "AUROPHARMA",
+    "entry": "2020-03-25",
+    "exit": "2020-06-25",
+    "reason": "time",
+    "net": 149.7,
+    "bench": 32.76,
+    "excess": 116.94,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-08-19",
+    "symbol": "MANINFRA",
+    "entry": "2021-08-20",
+    "exit": "2021-11-17",
+    "reason": "time",
+    "net": 121.45,
+    "bench": 9.85,
+    "excess": 111.6,
+    "discontinuity": false
+   },
+   {
+    "public": "2022-06-18",
+    "symbol": "FCL",
+    "entry": "2022-06-20",
+    "exit": "2022-09-15",
+    "reason": "time",
+    "net": 125.2,
+    "bench": 18.05,
+    "excess": 107.15,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-02-15",
+    "symbol": "CGPOWER",
+    "entry": "2021-02-16",
+    "exit": "2021-05-19",
+    "reason": "time",
+    "net": 89.74,
+    "bench": -1.71,
+    "excess": 91.45,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-05-28",
+    "symbol": "CYIENT",
+    "entry": "2020-05-29",
+    "exit": "2020-08-21",
+    "reason": "time",
+    "net": 97.57,
+    "bench": 21.46,
+    "excess": 76.12,
+    "discontinuity": false
+   },
+   {
+    "public": "2026-03-18",
+    "symbol": "IOLCP",
+    "entry": "2026-03-19",
+    "exit": "2026-06-19",
+    "reason": "time",
+    "net": 76.91,
+    "bench": 3.76,
+    "excess": 73.15,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-10-02",
+    "symbol": "SURYAROSNI",
+    "entry": "2020-10-05",
+    "exit": "2020-12-31",
+    "reason": "time",
+    "net": 82.47,
+    "bench": 21.98,
+    "excess": 60.49,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-27",
+    "symbol": "NCC",
+    "entry": "2020-03-30",
+    "exit": "2020-06-30",
+    "reason": "time",
+    "net": 83.8,
+    "bench": 24.22,
+    "excess": 59.59,
+    "discontinuity": false
+   }
+  ],
+  "without_top_5pct": {
+   "median_excess_pct": -5.823126380376631,
+   "mean_excess_pct": -2.478090094908434
+  },
+  "without_discontinuities": {
+   "trades": 304,
+   "median_excess_pct": -4.759453543120223,
+   "mean_excess_pct": 1.9288410064068124
+  }
+ },
+ "S2_bulk_block_buy": {
+  "trades": 1838,
+  "with_price_discontinuity": 0,
+  "top10": [
+   {
+    "public": "2020-03-31",
+    "symbol": "IDEA",
+    "entry": "2020-04-01",
+    "exit": "2020-07-02",
+    "reason": "time",
+    "net": 228.24,
+    "bench": 22.64,
+    "excess": 205.6,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-08-23",
+    "symbol": "OLECTRA",
+    "entry": "2021-08-24",
+    "exit": "2021-11-22",
+    "reason": "time",
+    "net": 197.23,
+    "bench": 7.8,
+    "excess": 189.43,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-20",
+    "symbol": "IBULHSGFIN",
+    "entry": "2020-03-23",
+    "exit": "2020-06-23",
+    "reason": "time",
+    "net": 206.3,
+    "bench": 30.66,
+    "excess": 175.64,
+    "discontinuity": false
+   },
+   {
+    "public": "2026-03-27",
+    "symbol": "APOLLO",
+    "entry": "2026-03-30",
+    "exit": "2026-06-30",
+    "reason": "time",
+    "net": 118.46,
+    "bench": 6.92,
+    "excess": 111.54,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-04-08",
+    "symbol": "TATACOMM",
+    "entry": "2020-04-09",
+    "exit": "2020-07-08",
+    "reason": "time",
+    "net": 129.27,
+    "bench": 20.95,
+    "excess": 108.31,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-20",
+    "symbol": "INFIBEAM",
+    "entry": "2020-03-23",
+    "exit": "2020-06-23",
+    "reason": "time",
+    "net": 116.98,
+    "bench": 30.66,
+    "excess": 86.32,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-01-18",
+    "symbol": "NEULANDLAB",
+    "entry": "2021-01-19",
+    "exit": "2021-04-20",
+    "reason": "time",
+    "net": 76.19,
+    "bench": 1.41,
+    "excess": 74.78,
+    "discontinuity": false
+   },
+   {
+    "public": "2026-03-10",
+    "symbol": "STALLION",
+    "entry": "2026-03-11",
+    "exit": "2026-06-11",
+    "reason": "time",
+    "net": 70.09,
+    "bench": -4.34,
+    "excess": 74.43,
+    "discontinuity": false
+   },
+   {
+    "public": "2023-03-02",
+    "symbol": "ADANIGREEN",
+    "entry": "2023-03-03",
+    "exit": "2023-06-05",
+    "reason": "time",
+    "net": 75.75,
+    "bench": 7.01,
+    "excess": 68.74,
+    "discontinuity": false
+   },
+   {
+    "public": "2026-05-29",
+    "symbol": "KALYANKJIL",
+    "entry": "2026-06-01",
+    "exit": "2026-08-25",
+    "reason": "time",
+    "net": 68.47,
+    "bench": 2.51,
+    "excess": 65.96,
+    "discontinuity": false
+   }
+  ],
+  "without_top_5pct": {
+   "median_excess_pct": -5.613018762896349,
+   "mean_excess_pct": -3.4623886847573844
+  },
+  "without_discontinuities": {
+   "trades": 1838,
+   "median_excess_pct": -4.580440617091491,
+   "mean_excess_pct": -0.8621249231163934
+  }
+ },
+ "S5_index_deletion_recovery": {
+  "trades": 225,
+  "with_price_discontinuity": 1,
+  "top10": [
+   {
+    "public": "2020-03-26",
+    "symbol": "RELINFRA",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 283.45,
+    "bench": 15.61,
+    "excess": 267.84,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "JISLJALEQS",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 283.21,
+    "bench": 15.61,
+    "excess": 267.59,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "RPOWER",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 251.33,
+    "bench": 15.61,
+    "excess": 235.72,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "IDEA",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 220.44,
+    "bench": 15.61,
+    "excess": 204.83,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "RELCAPITAL",
+    "entry": "2020-03-27",
+    "exit": "2020-05-06",
+    "reason": "delisted",
+    "net": 120.4,
+    "bench": 3.74,
+    "excess": 116.66,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "IBULHSGFIN",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 123.36,
+    "bench": 15.61,
+    "excess": 107.74,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-03-26",
+    "symbol": "LAKSHVILAS",
+    "entry": "2020-03-27",
+    "exit": "2020-06-29",
+    "reason": "time",
+    "net": 115.27,
+    "bench": 15.61,
+    "excess": 99.66,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-03-30",
+    "symbol": "PRAJIND",
+    "entry": "2021-03-31",
+    "exit": "2021-06-29",
+    "reason": "time",
+    "net": 94.78,
+    "bench": 7.06,
+    "excess": 87.72,
+    "discontinuity": false
+   },
+   {
+    "public": "2021-03-30",
+    "symbol": "JAICORPLTD",
+    "entry": "2021-03-31",
+    "exit": "2021-06-29",
+    "reason": "time",
+    "net": 88.96,
+    "bench": 7.06,
+    "excess": 81.89,
+    "discontinuity": false
+   },
+   {
+    "public": "2020-06-25",
+    "symbol": "WABAG",
+    "entry": "2020-06-26",
+    "exit": "2020-09-18",
+    "reason": "time",
+    "net": 84.22,
+    "bench": 11.95,
+    "excess": 72.27,
+    "discontinuity": false
+   }
+  ],
+  "without_top_5pct": {
+   "median_excess_pct": -2.808515023345648,
+   "mean_excess_pct": 0.947957715732533
+  },
+  "without_discontinuities": {
+   "trades": 224,
+   "median_excess_pct": -0.7939857863072997,
+   "mean_excess_pct": 8.148616467977131
+  }
+ },
+ "S5_by_review": {
+  "2018-09-28": {
+   "trades": 17,
+   "median_excess_pct": -8.896789395459292,
+   "mean_excess_pct": 2.058882653261168
+  },
+  "2019-03-29": {
+   "trades": 15,
+   "median_excess_pct": -12.396467291462232,
+   "mean_excess_pct": -7.940659385941763
+  },
+  "2019-09-27": {
+   "trades": 16,
+   "median_excess_pct": -10.239687680821891,
+   "mean_excess_pct": -3.251645264093267
+  },
+  "2020-03-27": {
+   "trades": 15,
+   "median_excess_pct": 65.86412816057548,
+   "mean_excess_pct": 97.33865189933346
+  },
+  "2020-06-26": {
+   "trades": 8,
+   "median_excess_pct": -14.972113818446125,
+   "mean_excess_pct": -1.3314030909051797
+  },
+  "2020-09-25": {
+   "trades": 12,
+   "median_excess_pct": -3.5014991335372447,
+   "mean_excess_pct": -0.08180133957775096
+  },
+  "2021-03-31": {
+   "trades": 18,
+   "median_excess_pct": 16.717883206154628,
+   "mean_excess_pct": 24.099085153694386
+  },
+  "2021-09-30": {
+   "trades": 4,
+   "median_excess_pct": -7.773438934314669,
+   "mean_excess_pct": 0.8299497586330862
+  },
+  "2022-03-31": {
+   "trades": 20,
+   "median_excess_pct": -2.8042721255781777,
+   "mean_excess_pct": 1.1847085367857102
+  },
+  "2022-09-30": {
+   "trades": 12,
+   "median_excess_pct": 0.4736137773563298,
+   "mean_excess_pct": 0.28712337371038876
+  },
+  "2023-03-31": {
+   "trades": 10,
+   "median_excess_pct": 4.810369226400557,
+   "mean_excess_pct": 5.2020250452312276
+  },
+  "2023-09-29": {
+   "trades": 9,
+   "median_excess_pct": -4.440073122481314,
+   "mean_excess_pct": -5.007416609222718
+  },
+  "2024-03-28": {
+   "trades": 13,
+   "median_excess_pct": 4.79408732270219,
+   "mean_excess_pct": 1.511345228310443
+  },
+  "2024-09-30": {
+   "trades": 19,
+   "median_excess_pct": 0.04562834253402093,
+   "mean_excess_pct": 0.4738219921916201
+  },
+  "2025-03-28": {
+   "trades": 17,
+   "median_excess_pct": 8.903924127506247,
+   "mean_excess_pct": 5.382008308321913
+  },
+  "2025-09-30": {
+   "trades": 11,
+   "median_excess_pct": -20.285365015198053,
+   "mean_excess_pct": -12.076375138800564
+  },
+  "2026-03-30": {
+   "trades": 9,
+   "median_excess_pct": 6.856081626218891,
+   "mean_excess_pct": 4.42528462455001
+  }
+ },
+ "S5_without_march_2020": {
+  "trades": 210,
+  "median_excess_pct": -2.2266887778274347,
+  "mean_excess_pct": 1.6693338830215125
+ },
+ "random_entry_control": {
+  "seed": 28,
+  "trades": 5000,
+  "median_excess_pct": -4.339779107598702,
+  "mean_excess_pct": -0.13057822502488417,
+  "win_rate_pct": 40.02,
+  "exit_reasons": {
+   "time": 3235,
+   "stop": 1757,
+   "delisted": 8
+  }
+ }
+}
