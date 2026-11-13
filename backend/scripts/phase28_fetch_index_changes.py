@@ -165,11 +165,18 @@ def parse_release(text: str, valid: set[str]) -> tuple[list[dict], int]:
         lower)]
 
     def heading_at(pos: int) -> str:
+        """The nearest part heading before `pos`; in a release with no part
+        headings, everything before the section (its reason is stated there,
+        e.g. "... as part of its periodic review ...")."""
         before = [h for p, h in parts if p < pos]
-        return before[-1] if before else lower[:600]
+        return before[-1] if before else lower[:pos]
 
+    # "NIFTY 500 The following …" and, in 2017–2018 releases, "NIFTY 500 Index
+    # The following …". The lookahead keeps out other indices whose names
+    # start the same way (Nifty500 Multicap, Nifty50 Equal Weight, …).
     headers = [(m.start(), m.end(), m.group(1).lower()) for m in re.finditer(
-        r"nifty(50|next50|500)(?=thefollowing|:thefollowing|-thefollowing|\(.{0,40}\)thefollowing)", lower)]
+        r"nifty(50|next50|500)(?:index)?(?=thefollowing|:thefollowing|-thefollowing|\(.{0,40}\)thefollowing)",
+        lower)]
     out, unconfirmed = [], 0
     for k, (start, end, key) in enumerate(headers):
         stop = headers[k + 1][0] if k + 1 < len(headers) else len(c)
@@ -208,7 +215,9 @@ def parse_release(text: str, valid: set[str]) -> tuple[list[dict], int]:
             if sym is None:
                 unconfirmed += 1
                 continue
-            out.append({"index": INDEX_NAMES[key], "symbol": sym, "heading": heading_at(start)[:300]})
+            heading = heading_at(start)
+            out.append({"index": INDEX_NAMES[key], "symbol": sym, "heading": heading[-300:],
+                        "periodic_review": "review" in heading and not CORPORATE.search(heading)})
     return out, unconfirmed
 
 
@@ -230,8 +239,7 @@ def main() -> None:
             continue
         found, unconfirmed = parse_release(text, bhav_symbols(eff))
         for f in found:
-            rows.append({**f, "release": name, "release_date": it["date"], "effective": eff.isoformat(),
-                         "periodic_review": "review" in f["heading"].lower() and not CORPORATE.search(f["heading"])})
+            rows.append({**f, "release": name, "release_date": it["date"], "effective": eff.isoformat()})
         report.append({**it, "status": "parsed", "effective": eff.isoformat(), "exclusions": len(found),
                        "unconfirmed": unconfirmed, "chars": len(text)})
     (ROOT / "index_exclusions.json").write_text(json.dumps(rows, indent=1))

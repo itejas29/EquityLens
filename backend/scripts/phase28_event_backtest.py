@@ -24,7 +24,7 @@ import os
 import sys
 import zipfile
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from statistics import mean, median
@@ -32,7 +32,6 @@ from statistics import mean, median
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import numpy as np  # noqa: E402
 from scipy import stats  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
@@ -371,12 +370,23 @@ def s2_signals(db) -> tuple[list, dict]:
     return signals, {"client_days": len(book), "qualifying_stock_days": len(signals)}
 
 
+S5_MIN_RELEASE_EXCLUSIONS = 10   # change 2 in the pre-registration's log
+
+
 def s5_signals(db, cal) -> tuple[list, dict]:
     rows = db.execute(text("""SELECT release, effective, index_name, symbol, periodic_review
         FROM altdata.index_exclusions""")).all()
+    # A periodic reconstitution is a release that drops at least 10 stocks
+    # across NIFTY 50 / Next 50 / 500. Every semi-annual review in the sample
+    # drops 21 or more; no one-off (merger, demerger, suspension) release drops
+    # more than 7. Wording-based detection proved unreliable — see change 2.
+    size = defaultdict(int)
+    for r in rows:
+        size[r.release] += 1
+    periodic = {rel for rel, n in size.items() if n >= S5_MIN_RELEASE_EXCLUSIONS}
     signals, seen = [], set()
     for r in rows:
-        if not r.periodic_review or (r.release, r.symbol) in seen:
+        if r.release not in periodic or (r.release, r.symbol) in seen:
             continue
         seen.add((r.release, r.symbol))
         k = bisect.bisect_left(cal, r.effective) - 1     # the "close of" session before the effective date
@@ -384,7 +394,8 @@ def s5_signals(db, cal) -> tuple[list, dict]:
             continue
         signals.append((cal[k], r.symbol, {"index": r.index_name, "effective": r.effective.isoformat(),
                                            "release": r.release}))
-    return signals, {"exclusion_rows": len(rows), "periodic_review_signals": len(signals)}
+    return signals, {"exclusion_rows": len(rows), "periodic_releases": sorted(periodic),
+                     "periodic_review_signals": len(signals)}
 
 
 def s4_trades(db, nifty: Bars, cal: list[date], cost_rt=INDEX_COST_RT):

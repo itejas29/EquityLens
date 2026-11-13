@@ -208,3 +208,27 @@ signal's trades:
    "… review …:"), and the registered rule is applied to them unchanged. On
    the releases checked, the three semi-annual reviews (February 2025, August
    2025, February 2026) now qualify and the six one-off replacements do not.
+
+2. **2026-11-13, before any return was computed: S5's periodic-review test
+   changed from wording to size.** Applied to all 456 readable releases, the
+   wording rule ("review" in the heading, no corporate-event word) still
+   misclassified whole semi-annual reviews:
+   - **March 2022:** the release never uses the word "review".
+   - **August 2019:** one stock in the NIFTY 50 list carries a footnote about
+     a demerger, and that footnote marked the release's whole NIFTY 500 list
+     as a corporate event.
+
+   **New rule:** a release counts as a periodic reconstitution if it
+   excludes at least 10 stocks across NIFTY 50, NIFTY Next 50 and NIFTY 500.
+   - **Basis:** the release sizes, not returns. Every semi-annual review from
+     March 2018 to March 2026 (plus the special June 2020 reconstitution)
+     excludes 21 or more; no one-off release excludes more than 7.
+   - **What qualifies:** every exclusion in a qualifying release. A stock
+     that stops trading (a merger or demerger) exits under the existing
+     30-day delisting rule.
+
+3. **Data gap, not a rule change:** the September 2021 review's main release
+   (`ind_prs23082021.pdf`) is a scanned image with no text layer, so its
+   NIFTY 50 and Next 50 exclusions cannot be read without OCR, which is not
+   in the stack. A separate 15 September 2021 release supplies that review's
+   22 NIFTY 500 exclusions.
