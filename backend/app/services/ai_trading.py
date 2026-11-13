@@ -163,6 +163,21 @@ def _is_rebalance_day(db: Session, as_of: date_type) -> bool:
     return prior_this_month is None
 
 
+def _has_never_traded(db: Session, account: PaperAccount) -> bool:
+    """A brand-new account's first runs count as its rebalance.
+
+    AITradingRun rows are global, not per account, so after the ₹15L fresh
+    start the month's rebalance had already been "used" by the old account and
+    the new one would sit fully in cash until the 1st of the next month. The
+    engine does not do that: a backtest started mid-month takes its first
+    session as its first rebalance (_rebalance_dates marks the first trading
+    day of each period *seen*). So until the account has executed its first
+    trade, every cycle may enter positions; the moment one exists, the monthly
+    cadence above governs alone.
+    """
+    return db.query(PaperTrade.id).filter(PaperTrade.account_id == account.id).first() is None
+
+
 def get_ai_trader_account(db: Session) -> PaperAccount:
     """Get-or-create the system user + account the AI loop trades against.
 
@@ -435,7 +450,7 @@ def run_ai_trading_cycle(db: Session, as_of: date_type) -> AITradingCycleResult:
     account = get_ai_trader_account(db)
     user_id = db.query(PaperAccount.user_id).filter(PaperAccount.id == account.id).scalar()
     retired = _retire_previous_accounts(db, as_of)
-    is_rebalance = _is_rebalance_day(db, as_of)
+    is_rebalance = _is_rebalance_day(db, as_of) or _has_never_traded(db, account)
 
     regime = compute_market_regime(db, as_of)
     previous = _last_regime(db, as_of)

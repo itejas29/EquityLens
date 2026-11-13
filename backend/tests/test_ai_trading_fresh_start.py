@@ -103,3 +103,39 @@ def test_the_buy_message_carries_reason_size_and_levels():
                  "Account equity: ₹1,500,000.00"):
         assert part in text
     assert text.count("&") == text.count("&amp;")
+
+
+def test_a_fresh_accounts_first_run_counts_as_its_rebalance(db_session, monkeypatch):
+    """November's rebalance was already consumed by the old account's runs, so
+    without this rule the new account would sit fully in cash until Dec 1.
+    A backtest started mid-month rebalances on its first session; so does a
+    fresh account."""
+    from app.models.ai_trading_run import AITradingRun
+    from app.models.daily_signal import DailySignal
+
+    ai_trading.get_ai_trader_account(db_session)
+    # A completed run earlier this month: the monthly rule alone says "no".
+    db_session.add(AITradingRun(run_date=date(2026, 11, 2), status="complete", regime="bull"))
+    stock = Stock(symbol="PICK", is_active=True)
+    db_session.add(stock)
+    db_session.flush()
+    db_session.add(PriceHistory(stock_id=stock.id, date=date(2026, 11, 13), close=Decimal("100.00")))
+    db_session.add(DailySignal(
+        date=DAY, stock_id=stock.id, rank=1, overall_score=Decimal("90"), signal="ACCUMULATE",
+        reference_close=Decimal("100"), reference_date=date(2026, 11, 13), entry_low=Decimal("95"),
+        entry_high=Decimal("105"), stop_loss=Decimal("80"), target_price=Decimal("140"),
+        risk_reward=Decimal("1.67"), stop_method="atr", rationale=[]))
+    db_session.flush()
+    monkeypatch.setattr(pt, "get_price_feed", lambda: _Feed({"PICK": {"price": 100.0}}, status="live"))
+    monkeypatch.setattr(ai_trading, "compute_market_regime", lambda db, d: {"regime": "bull", "exposure": 1.0})
+
+    result = ai_trading.run_ai_trading_cycle(db_session, DAY)
+
+    assert result.rebalanced is True
+    assert [b["symbol"] for b in result.bought] == ["PICK"]
+
+    # With a position on the books, the monthly cadence governs again.
+    db_session.add(AITradingRun(run_date=DAY, status="complete", regime="bull"))
+    db_session.flush()
+    result2 = ai_trading.run_ai_trading_cycle(db_session, date(2026, 11, 17))
+    assert result2.rebalanced is False

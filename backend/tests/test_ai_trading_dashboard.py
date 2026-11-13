@@ -93,8 +93,16 @@ def test_a_cycle_logs_every_decision_it_takes(db_session, monkeypatch):
 def test_a_non_rebalance_day_says_why_there_were_no_entries(db_session, monkeypatch):
     from app.models.ai_trading_run import AITradingRun
 
-    ai_trading.get_ai_trader_account(db_session)
+    account = ai_trading.get_ai_trader_account(db_session)
     db_session.add(AITradingRun(run_date=date(2026, 9, 1), status="complete", regime="bull"))
+    # The account has traded before, so the monthly cadence governs — a fresh
+    # account's first runs count as its rebalance (see _has_never_traded).
+    done = _stock(db_session, "DONE")
+    db_session.add(PaperTrade(
+        account_id=account.id, stock_id=done.id, side="buy", quantity=1, price=Decimal("100.00"),
+        cost_basis=Decimal("100.00"), status="closed", exit_price=Decimal("110.00"), pnl=Decimal("10.00"),
+        exit_reason="target", executed_at=datetime(2026, 8, 3, tzinfo=timezone.utc),
+        exit_at=datetime(2026, 8, 20, tzinfo=timezone.utc)))
     db_session.flush()
     monkeypatch.setattr(pt, "get_price_feed", lambda: _Feed())
     monkeypatch.setattr(ai_trading, "compute_market_regime", lambda db, d: BEAR)
