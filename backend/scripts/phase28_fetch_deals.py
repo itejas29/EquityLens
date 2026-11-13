@@ -75,9 +75,34 @@ def main() -> None:
         d += timedelta(days=1)
     manifest_path.write_text(json.dumps(manifest, indent=0, sort_keys=True))
     refetch_capped_days_as_csv(nse, manifest, manifest_path)
+    repair_csv_dates(manifest)
     capped = [k for k, v in manifest.items() if isinstance(v, str) and "at cap" in v]
     failed = [k for k, v in manifest.items() if v == "failed"]
     print(f"done: {len(manifest)} requests, {len(capped)} days still at the cap, {len(failed)} failed {failed[:10]}")
+
+
+def repair_csv_dates(manifest) -> None:
+    """The first CSV re-fetch (before the utf-8-sig decode above) lost the
+    Date column to the mangled byte-order mark. Every CSV file is a
+    single-day request (from=to=that day), so the deal date is the request
+    date in its file name — the date NSE was asked for, not an estimate."""
+    fixed = 0
+    for key, v in manifest.items():
+        if not (isinstance(v, str) and "(csv)" in v):
+            continue
+        kind, span = key.split(":")
+        path = ROOT / "deals" / kind / f"{span}.json"
+        rows = json.loads(path.read_text())
+        day = date(int(span[:4]), int(span[4:6]), int(span[6:8]))
+        changed = False
+        for row in rows:
+            if not row.get("BD_DT_DATE"):
+                row["BD_DT_DATE"] = f"{day:%d-%b-%Y}".upper()
+                changed = True
+        if changed:
+            path.write_text(json.dumps(rows))
+            fixed += 1
+    print(f"csv date repair: {fixed} files", flush=True)
 
 
 CSV_FIELDS = {"Date": "BD_DT_DATE", "Symbol": "BD_SYMBOL", "Security Name": "BD_SCRIP_NAME",
@@ -107,8 +132,12 @@ def refetch_capped_days_as_csv(nse, manifest, manifest_path) -> None:
         for attempt in range(4):
             try:
                 r = nse.s.get(url, headers={"User-Agent": UA, "Referer": nse.referer, "Accept": "*/*"}, timeout=60)
-                if r.status_code == 200 and "Symbol" in r.text[:300]:
-                    body = r.text.lstrip("﻿")
+                # Decoded explicitly: NSE serves the CSV with no charset, so
+                # requests falls back to latin-1 and the UTF-8 byte-order mark
+                # becomes "ï»¿" glued to the first header ("Date").
+                text_body = r.content.decode("utf-8-sig", errors="replace")
+                if r.status_code == 200 and "Symbol" in text_body[:300]:
+                    body = text_body
                     break
             except Exception as exc:  # noqa: BLE001 — any failure is retried, then recorded
                 print(f"  {key} attempt {attempt + 1}: {type(exc).__name__}", flush=True)
