@@ -1,0 +1,42 @@
+{
+ "S1_insider_cluster_buy": {
+  "trades": 306,
+  "median_excess_pct": -4.759453543120223,
+  "mean_excess_pct": 1.8108119746447167,
+  "win_rate_pct": 38.56209150326798,
+  "p_value": 0.10588955931939842,
+  "verdict": "FAIL"
+ },
+ "S2_bulk_block_buy": {
+  "trades": 1838,
+  "median_excess_pct": -4.602148012415314,
+  "mean_excess_pct": -0.8898085632168623,
+  "win_rate_pct": 39.445048966267684,
+  "p_value": 0.9821337267494561,
+  "verdict": "FAIL"
+ },
+ "S3_top_fund_accumulation": {
+  "trades": 0,
+  "median_excess_pct": null,
+  "mean_excess_pct": null,
+  "win_rate_pct": null,
+  "p_value": null,
+  "verdict": "BLOCKED"
+ },
+ "S4_fii_extreme_selling": {
+  "trades": 16,
+  "median_excess_pct": -2.503305803483665,
+  "mean_excess_pct": -1.720330333585925,
+  "win_rate_pct": 37.5,
+  "p_value": 0.8430795691302657,
+  "verdict": "INSUFFICIENT"
+ },
+ "S5_index_deletion_recovery": {
+  "trades": 225,
+  "median_excess_pct": -0.8057924442405495,
+  "mean_excess_pct": 8.17484089293295,
+  "win_rate_pct": 46.666666666666664,
+  "p_value": 0.001175266519308767,
+  "verdict": "FAIL"
+ }
+}

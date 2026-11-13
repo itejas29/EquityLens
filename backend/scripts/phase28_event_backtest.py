@@ -215,12 +215,19 @@ def simulate(bars: Bars, public: date, cal: list[date], nifty: Bars, cost_rt: fl
             break
         i += 1
     if exit_day is None:
-        j = bars.first_on_or_after(exit_target)
-        if j is None or (bars.d[j] - exit_target).days > DELIST_GAP_DAYS:
-            last = bars.d[-1]
-            if (cal[-1] - last).days <= DELIST_GAP_DAYS:
+        # i is now the first bar on/after the exit session (or past the end);
+        # k the last bar before it. A gap of more than 30 days between them is
+        # the delisting rule too — it straddles the exit date, so the loop
+        # above never saw it. (The first run used the series' LAST bar here,
+        # which held RELCAPITAL from 2020 to its 2022 suspension: change 4.)
+        k = i - 1
+        j = i if i < len(bars.d) else None
+        if j is None:
+            if (cal[-1] - bars.d[k]).days <= DELIST_GAP_DAYS:
                 return None                          # data simply ends: cannot finish
-            exit_day, exit_px, reason = last, bars.c[-1], "delisted"
+            exit_day, exit_px, reason = bars.d[k], bars.c[k], "delisted"
+        elif (bars.d[j] - bars.d[k]).days > DELIST_GAP_DAYS:
+            exit_day, exit_px, reason = bars.d[k], bars.c[k], "delisted"
         else:
             exit_day, exit_px = bars.d[j], bars.o[j]
     gross = exit_px / entry_px - 1

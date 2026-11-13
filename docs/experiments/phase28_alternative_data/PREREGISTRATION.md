@@ -227,6 +227,19 @@ signal's trades:
      that stops trading (a merger or demerger) exits under the existing
      30-day delisting rule.
 
+4. **2026-11-13, AFTER the first run: backtest bug fix, rule unchanged.**
+   - **How it was found:** checking the first run's outliers. A
+     RELCAPITAL trade (S5) was held 788 days, and a TV18BRDCST trade (S2)
+     313 days.
+   - **The bug:** when a stock's bars stopped for more than 30 days across
+     the planned exit date, the code closed the trade at the stock's *last
+     bar in the whole series* instead of its last bar before the gap. The
+     registered rule says the trade closes at its last close once there is
+     no bar for 30 days.
+   - **The fix:** the code now applies that rule. These were the only two
+     trades held over 100 days.
+   - **Reporting:** both runs are in FINDINGS.md.
+
 3. **Data gap, not a rule change:** the September 2021 review's main release
    (`ind_prs23082021.pdf`) is a scanned image with no text layer, so its
    NIFTY 50 and Next 50 exclusions cannot be read without OCR, which is not
