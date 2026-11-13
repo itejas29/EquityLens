@@ -2352,6 +2352,8 @@ th.sortable .sort-arrow {
 /* Portfolio Header */
 .portfolio-header-metrics {
   display: flex;
+  flex-wrap: wrap;
+  gap: 16px 12px;
   padding: 24px 0;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -2486,6 +2488,19 @@ th.sortable .sort-arrow {
 
 @media (max-width: 720px) {
   .page-container { padding: 16px 14px 48px; }
+}
+
+/* Paper trading: holdings beside the order ticket on wide screens; stacked on
+   phones. This was an inline "minmax(0,1fr) 340px" grid, which cannot carry a
+   media query — at 375px the fixed 340px ticket crushed the holdings column. */
+.paper-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .paper-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* --- Market overview ---------------------------------------------------- */

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiClient } from "../api/client";
+import { apiClient, apiErrorMessage } from "../api/client";
+import EmptyState from "../components/EmptyState";
+import ErrorMessage from "../components/ErrorMessage";
 import { SkeletonTable } from "../components/Skeleton";
 import Sparkline from "../components/Sparkline";
 
@@ -12,6 +14,7 @@ function inr(val) {
 export default function PortfolioPage() {
   const [portfolios, setPortfolios] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   // {symbol: {change, change_pct}} for the latest completed session, keyed for
   // O(1) lookup while rendering rows.
   const [dayMoves, setDayMoves] = useState({});
@@ -43,8 +46,11 @@ export default function PortfolioPage() {
           setLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
+      .catch((err) => {
+        if (!cancelled) {
+          setError(apiErrorMessage(err));
+          setLoading(false);
+        }
       });
     return () => { cancelled = true; };
   }, []);
@@ -94,14 +100,10 @@ export default function PortfolioPage() {
             </svg>
             Analyse
           </Link>
-          <button className="btn btn-outline" style={{ padding: '8px 12px', borderRadius: 6 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </button>
         </div>
       </div>
+
+      <ErrorMessage message={error} />
 
       {/* Summary Header */}
       <div className="portfolio-header-metrics">
@@ -128,7 +130,16 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      {/* Holdings Table */}
+      {/* Holdings Table — not rendered when empty: an empty state inside the
+          horizontally-scrolling table inherits its min-width and gets clipped
+          on phones. */}
+      {holdings.length === 0 && !error ? (
+        <EmptyState
+          title="No portfolio yet"
+          description="Run an analysis to build a sized paper portfolio from the current scored universe. Nothing here uses real money."
+          action={<Link to="/analyze" className="btn btn-primary">Analyze a portfolio</Link>}
+        />
+      ) : (
       <div className="groww-table-wrap">
         <table className="groww-table">
           <thead>
@@ -209,16 +220,10 @@ export default function PortfolioPage() {
                 </tr>
               );
             })}
-            {holdings.length === 0 && (
-              <tr>
-                <td colSpan="5" className="text-center" style={{ padding: 48, color: 'var(--text-muted)' }}>
-                  No investments found in your paper account.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
+      )}
 
     </div>
   );

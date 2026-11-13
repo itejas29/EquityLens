@@ -804,6 +804,7 @@ export default function PaperTradingPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [placing, setPlacing] = useState(false);
+  const [sellError, setSellError] = useState("");
   // Holdings are in the fast tier, so their marks arrive over the socket
   // between the 60s account polls.
   const { quotes } = useLivePrices();
@@ -843,12 +844,15 @@ export default function PaperTradingPage() {
 
   async function handleSell(symbol) {
     setPlacing(true);
+    setSellError("");
     try {
       await apiClient.post("/paper/sell", { symbol });
       load();
     } catch (e) {
-      // Sell errors surface in the holdings table area silently; the order
-      // ticket shows its own message for direct actions.
+      // Shown above the holdings panel. This used to be swallowed, so a
+      // refused sell (e.g. "no price data available") looked like nothing
+      // happened when the button was pressed.
+      setSellError(`Could not sell ${symbol}: ${apiErrorMessage(e)}`);
     } finally {
       setPlacing(false);
     }
@@ -861,12 +865,7 @@ export default function PaperTradingPage() {
   const holdings = acct.holdings || [];
 
   return (
-    <div className="page" style={{
-      display: "grid",
-      gridTemplateColumns: "minmax(0,1fr) 340px",
-      gap: 28,
-      alignItems: "start",
-    }}>
+    <div className="page paper-layout">
 
       {/* ═══ LEFT COLUMN — all scrollable content ═══ */}
       <div style={{ minWidth: 0 }}>
@@ -920,6 +919,9 @@ export default function PaperTradingPage() {
             title="Holdings"
             sub={`${holdings.length} open position${holdings.length === 1 ? "" : "s"}`}
           />
+          {sellError && (
+            <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{sellError}</div>
+          )}
           <HoldingsPanel
             holdings={holdings}
             acct={acct}
