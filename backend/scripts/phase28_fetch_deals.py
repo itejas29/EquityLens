@@ -74,9 +74,62 @@ def main() -> None:
                 print(f"bulk through {d}", flush=True)
         d += timedelta(days=1)
     manifest_path.write_text(json.dumps(manifest, indent=0, sort_keys=True))
-    capped = [k for k, v in manifest.items() if isinstance(v, str) and "cap" in v]
+    refetch_capped_days_as_csv(nse, manifest, manifest_path)
+    capped = [k for k, v in manifest.items() if isinstance(v, str) and "at cap" in v]
     failed = [k for k, v in manifest.items() if v == "failed"]
-    print(f"done: {len(manifest)} requests, {len(capped)} days at the cap, {len(failed)} failed {failed[:10]}")
+    print(f"done: {len(manifest)} requests, {len(capped)} days still at the cap, {len(failed)} failed {failed[:10]}")
+
+
+CSV_FIELDS = {"Date": "BD_DT_DATE", "Symbol": "BD_SYMBOL", "Security Name": "BD_SCRIP_NAME",
+              "Client Name": "BD_CLIENT_NAME", "Buy / Sell": "BD_BUY_SELL", "Quantity Traded": "BD_QTY_TRD",
+              "Trade Price / Wght. Avg. Price": "BD_TP_WATP", "Remarks": "BD_REMARKS"}
+
+
+def refetch_capped_days_as_csv(nse, manifest, manifest_path) -> None:
+    """The JSON endpoint stops at 70 rows; the same endpoint with csv=true
+    (the site's own "Download" button) does not — 28-Dec-2023 gave 70 rows as
+    JSON and 106 as CSV. Each single day that hit the cap is fetched again as
+    CSV and its file replaced, in the JSON rows' own field names, with the
+    Indian digit grouping ("1,93,925") removed from the numbers."""
+    import csv
+    import io
+
+    from phase28_http import UA
+
+    todo = sorted(k for k, v in manifest.items() if isinstance(v, str) and "at cap" in v)
+    print(f"re-fetching {len(todo)} capped days as CSV", flush=True)
+    for n, key in enumerate(todo, 1):
+        kind, span = key.split(":")
+        day = span[:8]
+        d = f"{day[6:8]}-{day[4:6]}-{day[:4]}"
+        url = URL.format(kind=kind, a=d, b=d) + "&csv=true"
+        body = None
+        for attempt in range(4):
+            try:
+                r = nse.s.get(url, headers={"User-Agent": UA, "Referer": nse.referer, "Accept": "*/*"}, timeout=60)
+                if r.status_code == 200 and "Symbol" in r.text[:300]:
+                    body = r.text.lstrip("﻿")
+                    break
+            except Exception as exc:  # noqa: BLE001 — any failure is retried, then recorded
+                print(f"  {key} attempt {attempt + 1}: {type(exc).__name__}", flush=True)
+            pause()
+            nse._warm()
+        pause()
+        if body is None:
+            manifest[key] = manifest[key] + " (csv failed)"
+            continue
+        rows = []
+        for rec in csv.DictReader(io.StringIO(body)):
+            row = {CSV_FIELDS[k.strip()]: (v or "").strip() for k, v in rec.items() if k and k.strip() in CSV_FIELDS}
+            for num in ("BD_QTY_TRD", "BD_TP_WATP"):
+                row[num] = row.get(num, "").replace(",", "")
+            rows.append(row)
+        (ROOT / "deals" / kind / f"{span}.json").write_text(json.dumps(rows))
+        manifest[key] = f"{len(rows)} (csv)"
+        if n % 50 == 0:
+            manifest_path.write_text(json.dumps(manifest, indent=0, sort_keys=True))
+            print(f"  csv {n}/{len(todo)}", flush=True)
+    manifest_path.write_text(json.dumps(manifest, indent=0, sort_keys=True))
 
 
 if __name__ == "__main__":
