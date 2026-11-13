@@ -42,6 +42,29 @@ rebalanced monthly, behind a 200-day market regime filter.
   only while it was above its 200-day average, 2008–2026:
   - cut the worst loss from −45.4% to −25.5%;
   - cut the annual return from 10.0% to 6.0%.
+- **Trading the same strategy bigger or faster made it worse**
+  ([Phase 27](docs/experiments/phase27_portfolio_construction/FINDINGS.md)).
+  Holding 12 or 15 stocks instead of 8, or refilling empty slots weekly instead
+  of monthly, were each measured on the survivorship-free folds for the
+  automated paper account. Every alternative lost to the live setup on the
+  median, the mean, and after dropping any one fold. Weekly refills raised
+  average deployment only from 67.5% to about 74%, so idle cash comes from the
+  regime brake and the entry gates, not the monthly cadence.
+- **Public non-price data didn't help either**
+  ([Phase 28](docs/experiments/phase28_alternative_data/FINDINGS.md)). Four
+  pre-registered event signals were collected from primary sources and run
+  against the survivorship-free universe, each judged against NIFTY 50 total
+  return over the trade's own window:
+  - insider cluster buying (SEBI PIT disclosures; 306 trades, median −4.76%) — FAIL;
+  - large bulk/block-deal buys (1,838 trades, median −4.58%) — FAIL;
+  - index-deletion recovery (225 trades, median −0.81%; the +8% mean is one
+    date, the 27 March 2020 COVID bottom) — FAIL;
+  - extreme FII selling (16 trades, below the 30 required) — INSUFFICIENT.
+
+  A control of 5,000 random entries under the same rules has a median of
+  −4.34%, so the insider and bulk-deal signals are indistinguishable from
+  picking at random. Mutual-fund holdings could not be collected (no
+  consolidated source) and are recorded as BLOCKED.
 
 The dashboard serves a strategy verdict generated from the Phase 24 backtest and
 the live record: Measurement PASS, Edge FAIL, Promotion BLOCKED
@@ -60,7 +83,35 @@ later change is logged in its pre-registration.
 - Runs pre-registered research phases against a local lab database: walk-forward folds, survivorship-free universes rebuilt from NSE bhavcopies, and a verdict generator that grades the strategy from test outcomes (`docs/experiments/`, `docs/audit/`)
 - Trains a small secondary ML model (LogisticRegression / RandomForest) as an *additional* probability signal — never blended into the rule-based score
 - Supports paper trading (virtual buy/sell against real prices) and a watchlist
+- Runs an automated paper account that executes the V1 shortlist by itself (see below), with Telegram alerts for the morning shortlist, every automated trade, regime changes and a weekly summary
 - Redis caching + per-user rate limiting on the compute-heavy endpoints
+
+## The automated paper account
+
+A dedicated system account executes V1's published shortlist with no manual
+clicks and **no real money**. Every decision it takes is one V1 already makes
+deterministically; the account only decides *when* to act on them.
+
+- **Capital:** ₹15,00,000 of virtual money (restarted 2026-11-13 on a fresh
+  account so the record is one capital base; the earlier ₹10L account's full
+  history is kept).
+- **Cycle:** once per trading day at 09:20 IST, after the 09:15 shortlist
+  publish, and only once a live tape exists. Stops, targets and the 90-day
+  horizon are checked daily; new entries and the regime trim happen on the
+  first completed run of each month — the cadence the backtests validated
+  ([Phase 20](docs/experiments/phase20_holding_period/FINDINGS.md) measured
+  every faster cadence as worse, and
+  [Phase 27](docs/experiments/phase27_portfolio_construction/FINDINGS.md)
+  re-confirmed it for this account's exact configuration).
+- **Rules:** top-8 shortlist names, entered only on a live quote inside the
+  entry zone, equal-weight sizing, ATR stop and target from the shortlist,
+  25% exposure cap while NIFTY is below its 200-day average.
+- **Controls and audit trail:** an on/off switch (off pauses everything,
+  including stop checks), and a per-decision log — every buy, sell, hold and
+  skip with its reason, every regime change, every switch flip.
+- **Expectations:** the research above found no edge for this strategy. The
+  account exists to measure the live record honestly, not because the record
+  is expected to beat NIFTY.
 
 ## Architecture
 
@@ -167,6 +218,12 @@ page lists every route.
 | POST | `/paper/buy` * | same transaction cost model as backtesting |
 | POST | `/paper/sell` * | |
 | GET | `/paper/account` * | mark-to-market, realized/unrealized P&L, win rate, drawdown |
+| GET | `/ai-trading/status` * | switch state, regime, last/next run, open-position count |
+| POST | `/ai-trading/toggle` * | the on/off switch; every flip is logged with who flipped it |
+| GET | `/ai-trading/log` * | the per-decision log (buy/sell/hold/skip/regime/toggle), paged |
+| GET | `/ai-trading/positions` * | open positions with stop/target distance |
+| GET | `/ai-trading/history` * | closed trades with win rate and profit factor, filterable |
+| GET | `/ai-trading/equity-curve` * | daily equity vs NIFTY since the account opened |
 
 ## Universe: catalogue vs. ingested
 
@@ -459,9 +516,9 @@ disappears.
 
 ## Tests
 
-`pytest` collects 447 tests. 446 run against SQLite in memory; the row-lock
+`pytest` collects 477 tests. 476 run against SQLite in memory; the row-lock
 test needs a real Postgres and is skipped unless `AUDIT_POSTGRES_URL` points at
-one. Measured 2026-10-31: 446 passed, 1 skipped. Run them with:
+one. Measured 2026-11-13: 476 passed, 1 skipped. Run them with:
 
 ```bash
 cd backend && pip install -r requirements-dev.txt && pytest
