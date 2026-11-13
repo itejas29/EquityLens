@@ -65,18 +65,33 @@ while it waits.
   the HTTP client's ("Request failed with status code 500"). No traceback can
   reach the UI because the API never sends one.
 
-## Not checked
+## Production-data checks (run 2026-11-13, read-only, after approval)
 
-These need read access to the production database, which this session was not
-permitted to use:
+Originally listed as "Not checked"; all three were run on 2026-11-13.
 
-1. Active symbols whose newest bar is behind the newest session (renamed or
-   delisted tickers that fail to download).
-2. The count and dates of `price_history` rows with a NULL close.
-3. Whether bugs 1, 2 and 4 fired in production: `ai_trading_runs` rows and AI
-   paper trades dated on days with no price bars.
+1. **Symbols failing to download:** 2 of 500 — ICICIPRULI and HEG. Yahoo still
+   serves their *daily* history, so they are not delisted; it is Yahoo's
+   minute feed that answers "possibly delisted; no price data" for these two.
+   A data-provider gap, not a code bug.
+2. **NULL closes in `price_history`:** 0 rows, all time.
+3. **Did bugs 1/2/4 fire in production?** Yes, once, before the fix. "No
+   session" below means no `price_history` bars exist for the date (a proxy —
+   it also flags dates whose nightly ingest failed):
+   - **Friday 2026-10-02 (Gandhi Jayanti, NSE closed):** the AI cycle ran and
+     recorded exits in ATHERENERG (@1405.26) and INDSWFTLAB (@394.91) — the
+     previous session's prices presented as live by bug 1, evaluated by the
+     sell pass. Both trades stay in the record as dated (records are never
+     rewritten); this note is their correction.
+   - One manual paper entry on a Sunday (CUPID, 2026-08-16, a human account):
+     the manual buy path has always allowed off-hours fills at the stored
+     close; see Deferred (fill source is not stored on manual trades).
+   - AI run rows also exist for 2026-09-14 and 2026-11-10 with no bars for
+     those dates, and a *failed* run on 2026-10-20 (Dussehra). The two
+     completed ones are more likely ingest gaps than holiday firings; they
+     produced no trades, so nothing in the money record depends on them.
 
-The queries are written and read-only (SELECT only).
+   The fixes deployed 2026-11-13 prevent recurrence: the loop waits for a
+   live tape, and no held-over price can pass as live.
 
 ## Deferred
 
